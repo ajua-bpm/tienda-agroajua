@@ -23,6 +23,7 @@ import AdminEntregas    from './admin/AdminEntregas.jsx';
 import AdminFacturacion from './admin/AdminFacturacion.jsx';
 import AdminPagos       from './admin/AdminPagos.jsx';
 import AdminListas      from './admin/AdminListas.jsx';
+import AdminPromociones from './admin/AdminPromociones.jsx';
 import AdminConfig      from './admin/AdminConfig.jsx';
 import AdminImport      from './admin/AdminImport.jsx';
 
@@ -71,7 +72,8 @@ export default function App() {
         <Route path="facturacion" element={<AdminFacturacion />} />
         <Route path="pagos"     element={<AdminPagos />} />
         <Route path="listas"    element={<AdminListas />} />
-        <Route path="importar"  element={<AdminImport />} />
+        <Route path="importar"     element={<AdminImport />} />
+        <Route path="promociones" element={<AdminPromociones />} />
         <Route path="config"    element={<AdminConfig />} />
       </Route>
 

@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { useCart } from '../contexts/CartContext.jsx';
 import { useToast } from '../components/Toast.jsx';
 import { db, doc, getDoc } from '../firebase.js';
-import { resolverPrecio, buildPriceMap } from '../utils/precios.js';
+import { resolverPrecio, buildPriceMap, getPromoParaProducto, aplicarPromo } from '../utils/precios.js';
 import { fmtQ } from '../utils/format.js';
 import { Link } from 'react-router-dom';
 
@@ -15,7 +15,8 @@ export default function Catalogo() {
   const { add, count } = useCart();
   const toast = useToast();
 
-  const { data: productos, loading } = useCollection('t_productos', { orderField: 'nombre', limitN: 300 });
+  const { data: productos, loading } = useCollection('t_productos',   { orderField: 'nombre', limitN: 300 });
+  const { data: promos }             = useCollection('t_promociones', { limitN: 50 });
   const [lista, setLista]   = useState(null);
   const [config, setConfig] = useState({});
   const [filtro, setFiltro] = useState('');
@@ -51,19 +52,21 @@ export default function Catalogo() {
     return list;
   }, [productos, filtro, busqueda]);
 
-  const getPrecio = p => {
+  const getBasePrice = p => {
     if (!user) return p.precioPublico || 0;
     return priceMap[p.id] || p.precioGeneral || p.precioPublico || 0;
   };
 
+  const getPrecioConPromo = p => {
+    const base  = getBasePrice(p);
+    const promo = getPromoParaProducto(p, promos);
+    return { base, promo, final: promo ? aplicarPromo(base, promo) : base };
+  };
+
   const addItem = p => {
-    const precio = getPrecio(p);
-    if (!precio) { toast('Precio no disponible — contacte a AJÚA', 'warn'); return; }
-    if (!user && tier() === 'publico') {
-      const min = config.minCompra_publico ?? 500;
-      // Allow adding, warn at checkout
-    }
-    add(p, precio);
+    const { final } = getPrecioConPromo(p);
+    if (!final) { toast('Precio no disponible — contacte a AJÚA', 'warn'); return; }
+    add(p, final);
     toast(`✓ ${p.nombre} agregado al carrito`);
   };
 
@@ -124,13 +127,20 @@ export default function Catalogo() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 20, paddingBottom: 40 }}>
             {visible.map(p => {
-              const precio    = getPrecio(p);
+              const { base, promo, final } = getPrecioConPromo(p);
               const esPrivado = !user && p.precioPublico !== p.precioGeneral;
+              const tienePromo = !!promo && final < base;
               return (
-                <div key={p.id} style={{ background: '#FDFCF8', borderRadius: 8, border: '1px solid #E8DCC8', overflow: 'hidden', transition: 'all .2s', cursor: 'default' }}
+                <div key={p.id} style={{ background: '#FDFCF8', borderRadius: 8, border: `1px solid ${tienePromo ? '#FFB74D' : '#E8DCC8'}`, overflow: 'hidden', transition: 'all .2s', cursor: 'default', position: 'relative' }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 28px rgba(26,61,40,.1)'}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
                 >
+                  {/* Promo badge */}
+                  {tienePromo && (
+                    <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 2, background: '#E65100', color: '#fff', fontWeight: 800, fontSize: '.7rem', padding: '3px 8px', borderRadius: 4 }}>
+                      {promo.tipo === '%' ? `-${promo.valor}%` : `-Q${promo.valor}`}
+                    </div>
+                  )}
                   <div style={{ height: 160, background: '#E8DCC8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3rem', overflow: 'hidden' }}>
                     {p.foto
                       ? <img src={p.foto} alt={p.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -142,8 +152,18 @@ export default function Catalogo() {
                       {p.descripcion || ''}
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontWeight: 700, fontSize: '.9rem', color: '#2D6645', filter: esPrivado ? 'blur(4px)' : 'none', userSelect: esPrivado ? 'none' : 'auto' }}>
-                        {precio ? `${fmtQ(precio)} / ${p.unidad || 'unidad'}` : 'Consultar'}
+                      <div style={{ filter: esPrivado ? 'blur(4px)' : 'none', userSelect: esPrivado ? 'none' : 'auto' }}>
+                        {tienePromo && (
+                          <div style={{ fontSize: '.75rem', color: '#aaa', textDecoration: 'line-through', lineHeight: 1.2 }}>
+                            {fmtQ(base)}
+                          </div>
+                        )}
+                        <div style={{ fontWeight: 800, fontSize: '.92rem', color: tienePromo ? '#E65100' : '#2D6645' }}>
+                          {final ? `${fmtQ(final)} / ${p.unidad || 'unidad'}` : 'Consultar'}
+                        </div>
+                        {tienePromo && promo.nombre && (
+                          <div style={{ fontSize: '.65rem', color: '#E65100', fontWeight: 600 }}>{promo.nombre}</div>
+                        )}
                       </div>
                       <button onClick={() => addItem(p)} style={{ padding: '7px 14px', background: G, color: '#F5F0E4', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '.75rem', fontWeight: 600 }}>
                         + Agregar
