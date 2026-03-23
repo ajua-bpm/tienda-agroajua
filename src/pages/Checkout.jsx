@@ -7,7 +7,7 @@ import AddressForm from '../components/AddressForm.jsx';
 import { db, doc, getDoc, addDoc, collection, serverTimestamp } from '../firebase.js';
 import { nextCorrelativo } from '../utils/correlativo.js';
 import { checkMinimo } from '../utils/precios.js';
-import { fmtQ, today } from '../utils/format.js';
+import { fmtQ, fmtDate, today } from '../utils/format.js';
 import { notifyNuevoPedido } from '../utils/mail.js';
 
 const G        = '#1A3D28';
@@ -28,22 +28,18 @@ export default function Checkout() {
   const toast    = useToast();
   const navigate = useNavigate();
 
-  const [config, setConfig]     = useState({});
-  const [saving, setSaving]     = useState(false);
-  const [editAddr, setEditAddr] = useState(false);
+  const [config, setConfig]       = useState({});
+  const [saving, setSaving]       = useState(false);
+  const [editAddr, setEditAddr]   = useState(false);
+  const [confirmed, setConfirmed] = useState(null); // { correlativo, items, neto, iva, total, sucursalNombre, fecha }
 
   const sucursales = cliente?.sucursales || [];
   const [sucursalId, setSucursalId] = useState('__principal__');
 
   const [form, setForm] = useState({
-    nombre:       '',
-    empresa:      '',
-    nit:          'CF',
-    telefono:     '',
-    email:        '',
-    direccion:    { pais:'Guatemala', departamento:'', municipio:'', zona:'', direccion:'', referencias:'' },
-    fechaEntrega: '',
-    notas:        '',
+    nombre: '', empresa: '', nit: 'CF', telefono: '', email: '',
+    direccion: { pais:'Guatemala', departamento:'', municipio:'', zona:'', direccion:'', referencias:'' },
+    fechaEntrega: '', notas: '',
   });
 
   useEffect(() => {
@@ -95,9 +91,9 @@ export default function Checkout() {
       toast('Dirección de entrega es requerida', 'error'); return;
     }
     if (!form.fechaEntrega) {
-      toast('Selecciona una fecha de entrega', 'error'); return;
+      toast('Seleccioná una fecha de entrega', 'error'); return;
     }
-    if (isEmpty) { toast('El carrito está vacío', 'error'); return; }
+    if (isEmpty) { toast('No hay productos en la orden', 'error'); return; }
 
     const t = tier();
     const { ok, min } = checkMinimo(total, t, config);
@@ -112,22 +108,22 @@ export default function Checkout() {
 
       const orden = {
         correlativo,
-        estado:       'nueva',
-        fecha:        today(),
-        fechaEntrega: form.fechaEntrega,
-        clienteUid:   user?.uid  || null,
-        clienteId:    user?.uid  || null,
-        clienteTier:  t,
-        nombre:       form.nombre,
-        empresa:      form.empresa,
-        nit:          form.nit,
-        telefono:     form.telefono,
-        email:        form.email,
-        direccion:    addr,
-        direccionStr: fmtAddr(addr),
-        sucursalId:   sucursalId !== '__principal__' ? sucursalId : null,
+        estado:         'nueva',
+        fecha:          today(),
+        fechaEntrega:   form.fechaEntrega,
+        clienteUid:     user?.uid  || null,
+        clienteId:      user?.uid  || null,
+        clienteTier:    t,
+        nombre:         form.nombre,
+        empresa:        form.empresa,
+        nit:            form.nit,
+        telefono:       form.telefono,
+        email:          form.email,
+        direccion:      addr,
+        direccionStr:   fmtAddr(addr),
+        sucursalId:     sucursalId !== '__principal__' ? sucursalId : null,
         sucursalNombre: sucursal?.nombre || null,
-        notas:        form.notas,
+        notas:          form.notas,
         items: items.map(i => ({
           productoId: i.id,
           nombre:     i.nombre,
@@ -136,8 +132,8 @@ export default function Checkout() {
           cantidad:   i.qty,
           subtotal:   i.precio * i.qty,
         })),
-        neto:     parseFloat(neto.toFixed(2)),
-        iva:      parseFloat(iva.toFixed(2)),
+        neto:    parseFloat(neto.toFixed(2)),
+        iva:     parseFloat(iva.toFixed(2)),
         total,
         pago:    { estado: 'pendiente', metodo: null, pagos: [] },
         factura: { estado: 'pendiente', correlativo: null, uuid: null, xmlUrl: null },
@@ -146,10 +142,24 @@ export default function Checkout() {
       };
 
       await addDoc(collection(db, 't_ordenes'), orden);
-      clear();
       notifyNuevoPedido(orden);
-      toast(`✓ Orden ${correlativo} enviada`);
-      navigate('/cuenta/ordenes');
+
+      // Show confirmed OC instead of navigating away
+      setConfirmed({
+        correlativo,
+        fecha:          today(),
+        fechaEntrega:   form.fechaEntrega,
+        nombre:         form.nombre,
+        empresa:        form.empresa,
+        nit:            form.nit,
+        sucursalNombre: sucursal?.nombre || 'Dirección principal',
+        direccionStr:   fmtAddr(addr),
+        items:          [...items],
+        neto:           parseFloat(neto.toFixed(2)),
+        iva:            parseFloat(iva.toFixed(2)),
+        total,
+      });
+      clear();
     } catch (e) {
       console.error(e);
       toast('Error al enviar pedido. Intenta de nuevo.', 'error');
@@ -158,18 +168,119 @@ export default function Checkout() {
     }
   };
 
+  // ── SUCCESS / CONFIRMED VIEW ────────────────────────────────────────────
+  if (confirmed) {
+    return (
+      <div style={{ maxWidth: 860, margin: '32px auto', padding: '0 24px 60px' }}>
+        {/* Success badge */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: '#E8F5E9', border: '1.5px solid #4A9E6A', borderRadius: 8, padding: '12px 24px' }}>
+            <span style={{ fontSize: '1.4rem' }}>✓</span>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: '1.05rem', color: G }}>Orden de Compra Generada</div>
+              <div style={{ fontSize: '.78rem', color: '#4A9E6A', marginTop: 2 }}>Se ha enviado confirmación por email</div>
+            </div>
+          </div>
+        </div>
+
+        {/* OC Document */}
+        <div style={{ background: '#fff', border: `2px solid ${G}`, borderRadius: 8, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,.08)' }}>
+
+          {/* Header */}
+          <div style={{ background: G, color: '#F5F0E4', padding: '16px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: '1.05rem' }}>🌿 AGROINDUSTRIA AJÚA</div>
+              <div style={{ fontSize: '.72rem', opacity: .65, marginTop: 2 }}>Proveedor de vegetales frescos · Guatemala</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '.72rem', opacity: .65 }}>ORDEN DE COMPRA</div>
+              <div style={{ fontWeight: 900, fontSize: '1.4rem', letterSpacing: '.02em', color: '#8DC26F' }}>{confirmed.correlativo}</div>
+              <div style={{ fontSize: '.72rem', opacity: .65 }}>Fecha: {fmtDate(confirmed.fecha)}</div>
+            </div>
+          </div>
+
+          {/* Client info */}
+          <div style={{ padding: '16px 28px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 32px', borderBottom: '1px solid #E8DCC8', background: '#FDFCF8' }}>
+            <InfoCell label="Cliente"           value={confirmed.nombre} />
+            <InfoCell label="Empresa"           value={confirmed.empresa || '—'} />
+            <InfoCell label="NIT"               value={confirmed.nit || 'CF'} />
+            <InfoCell label="Punto de entrega"  value={confirmed.sucursalNombre} />
+            <InfoCell label="Dirección"         value={confirmed.direccionStr || '—'} span />
+            <InfoCell label="Fecha de entrega"  value={fmtDate(confirmed.fechaEntrega)} />
+            <InfoCell label="Estado"            value={<span style={{ background:'#E3F2FD', color:'#1565C0', fontWeight:700, fontSize:'.78rem', padding:'2px 8px', borderRadius:4 }}>Nueva</span>} />
+          </div>
+
+          {/* Items table */}
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#F5F5F0', borderBottom: '1px solid #E8DCC8' }}>
+                {['#', 'Producto', 'Unidad', 'Cant.', 'P. Unitario', 'P. Total'].map(h => (
+                  <th key={h} style={{ padding: '9px 12px', fontSize: '.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: '#6B8070', textAlign: ['P. Unitario','P. Total'].includes(h) ? 'right' : ['Cant.'].includes(h) ? 'center' : 'left' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {confirmed.items.map((item, i) => (
+                <tr key={item.id} style={{ borderBottom: '1px solid #F0EBE0', background: i % 2 ? '#FAFAF7' : '#fff' }}>
+                  <td style={{ padding: '10px 12px', fontSize: '.78rem', color: '#aaa', width: 32 }}>{i + 1}</td>
+                  <td style={{ padding: '10px 12px', fontWeight: 600, fontSize: '.88rem', color: G }}>{item.nombre}</td>
+                  <td style={{ padding: '10px 12px', fontSize: '.82rem', color: '#6B8070' }}>{item.unidad}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, fontSize: '.88rem' }}>{item.qty}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: '.85rem', color: '#555' }}>{fmtQ(item.precio)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, fontSize: '.9rem', color: G }}>{fmtQ(item.precio * item.qty)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Totals */}
+          <div style={{ padding: '16px 28px', borderTop: '2px solid #E8DCC8', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ minWidth: 260 }}>
+              <TotalRow label="Subtotal (neto)" value={fmtQ(confirmed.neto)} />
+              <TotalRow label="IVA (12%)"       value={fmtQ(confirmed.iva)} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.1rem', color: G, paddingTop: 10, borderTop: '2px solid #E8DCC8', marginTop: 6 }}>
+                <span>TOTAL</span>
+                <span>{fmtQ(confirmed.total)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer note */}
+          <div style={{ padding: '12px 28px', background: '#F5F5F0', borderTop: '1px solid #E8DCC8', fontSize: '.75rem', color: '#6B8070' }}>
+            📋 El método de pago se coordinará directamente. Te avisaremos por email cuando la orden sea confirmada y cuando vaya en ruta.
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 12, marginTop: 20, justifyContent: 'center' }}>
+          <button onClick={() => window.print()} style={{ padding: '10px 22px', background: '#F5F5F0', border: '1px solid #D0C8B4', borderRadius: 4, fontSize: '.83rem', fontWeight: 600, cursor: 'pointer', color: '#555' }}>
+            🖨 Imprimir OC
+          </button>
+          <button onClick={() => navigate('/cuenta/ordenes')} style={{ padding: '10px 22px', background: G, color: '#F5F0E4', border: 'none', borderRadius: 4, fontSize: '.83rem', fontWeight: 700, cursor: 'pointer' }}>
+            Ver mis órdenes →
+          </button>
+          <button onClick={() => navigate('/')} style={{ padding: '10px 22px', background: '#4A9E6A', color: '#fff', border: 'none', borderRadius: 4, fontSize: '.83rem', fontWeight: 700, cursor: 'pointer' }}>
+            Nuevo pedido
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── EMPTY CART ───────────────────────────────────────────────────────────
   if (isEmpty) {
     return (
       <div style={{ maxWidth: 600, margin: '80px auto', textAlign: 'center', padding: '0 24px', color: '#6B8070' }}>
-        <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🛒</div>
-        <p>Tu carrito está vacío.</p>
+        <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📋</div>
+        <p>No hay productos en la orden.</p>
         <button onClick={() => navigate('/')} style={{ marginTop: 16, padding: '10px 24px', background: G, color: '#F5F0E4', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
-          Ver catálogo
+          Ir al catálogo
         </button>
       </div>
     );
   }
 
+  // ── OC CONFIRMATION FORM ─────────────────────────────────────────────────
   const minPublico = config.minCompra_publico ?? 500;
   const underMin   = !user && total < minPublico;
   const addr       = resolvedAddress();
@@ -177,90 +288,82 @@ export default function Checkout() {
   const isLoggedIn = !!user && !!cliente;
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '28px 24px 48px' }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 48px' }}>
 
-      {/* Page title */}
+      {/* Title */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: '.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: '#6B8070', marginBottom: 4 }}>
-          Agroindustria AJÚA
-        </div>
-        <h1 style={{ fontSize: '1.4rem', fontWeight: 900, color: G, margin: 0 }}>Orden de Compra</h1>
+        <div style={{ fontSize: '.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: '#6B8070', marginBottom: 4 }}>Agroindustria AJÚA</div>
+        <h1 style={{ fontSize: '1.35rem', fontWeight: 900, color: G, margin: 0 }}>Revisión de Orden de Compra</h1>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 310px', gap: 24, alignItems: 'start' }}>
 
         {/* ── LEFT: OC Document ── */}
         <div>
 
-          {/* OC header */}
+          {/* OC header block */}
           <div style={{ background: '#FDFCF8', border: `2px solid ${G}`, borderRadius: 8, marginBottom: 16, overflow: 'hidden' }}>
             <div style={{ background: G, color: '#F5F0E4', padding: '10px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontWeight: 900, fontSize: '.95rem' }}>🌿 AGROINDUSTRIA AJÚA</div>
-                <div style={{ fontSize: '.7rem', opacity: .65 }}>Orden de Compra · {today()}</div>
+                <div style={{ fontWeight: 900, fontSize: '.92rem' }}>🌿 AGROINDUSTRIA AJÚA</div>
+                <div style={{ fontSize: '.68rem', opacity: .6 }}>Orden de Compra · {today()}</div>
               </div>
-              <div style={{ textAlign: 'right', fontSize: '.75rem', opacity: .8 }}>
+              <div style={{ textAlign: 'right', fontSize: '.72rem', opacity: .75 }}>
                 <div style={{ fontWeight: 700 }}>Pendiente de confirmación</div>
-                {isLoggedIn && <div style={{ marginTop: 2, fontSize: '.68rem', opacity: .7 }}>Se asignará # al confirmar</div>}
+                <div style={{ opacity: .6, marginTop: 1 }}>Nº se asigna al confirmar</div>
               </div>
             </div>
-
-            {/* Client info row */}
-            <div style={{ padding: '12px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px', fontSize: '.8rem', borderBottom: `1px solid #E8DCC8` }}>
+            <div style={{ padding: '12px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 24px', borderBottom: '1px solid #E8DCC8', fontSize: '.8rem' }}>
               {isLoggedIn ? (
                 <>
-                  <InfoCell label="Cliente"  value={form.nombre} />
-                  <InfoCell label="Empresa"  value={form.empresa || '—'} />
-                  <InfoCell label="NIT"      value={form.nit || 'CF'} />
-                  <InfoCell label="Teléfono" value={form.telefono || '—'} />
-                  <InfoCell label="Dirección de entrega" value={addrStr || <span style={{ color:'#C62828' }}>Sin dirección</span>} span />
-                  {addr?.referencias && <InfoCell label="Referencias" value={addr.referencias} span />}
+                  <InfoCell label="Cliente"   value={form.nombre} />
+                  <InfoCell label="Empresa"   value={form.empresa || '—'} />
+                  <InfoCell label="NIT"       value={form.nit || 'CF'} />
+                  <InfoCell label="Teléfono"  value={form.telefono || '—'} />
+                  <InfoCell label="Dirección" value={addrStr || <span style={{ color:'#C62828' }}>Sin dirección</span>} span />
                 </>
               ) : (
                 <>
-                  <InfoCell label="Cliente"  value={form.nombre || <span style={{ color:'#aaa' }}>—</span>} />
+                  <InfoCell label="Cliente"  value={form.nombre  || <span style={{ color:'#aaa' }}>—</span>} />
                   <InfoCell label="Empresa"  value={form.empresa || '—'} />
-                  <InfoCell label="NIT"      value={form.nit || 'CF'} />
+                  <InfoCell label="NIT"      value={form.nit     || 'CF'} />
                   <InfoCell label="Teléfono" value={form.telefono || '—'} />
                 </>
               )}
             </div>
           </div>
 
-          {/* ── Product table ── */}
-          <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+          {/* Items table */}
+          <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: G }}>
                   {['Producto', 'Unidad', 'Cant.', 'P. Unitario', 'P. Total', ''].map(h => (
-                    <th key={h} style={{ padding: '9px 14px', color: '#F5F0E4', fontSize: '.7rem', fontWeight: 700, textAlign: h === 'P. Unitario' || h === 'P. Total' ? 'right' : 'left', textTransform: 'uppercase', letterSpacing: '.05em' }}>{h}</th>
+                    <th key={h} style={{ padding: '9px 12px', color: '#F5F0E4', fontSize: '.68rem', fontWeight: 700, textAlign: ['P. Unitario','P. Total'].includes(h) ? 'right' : ['Cant.'].includes(h) ? 'center' : 'left', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, i) => (
                   <tr key={item.id} style={{ background: i % 2 ? '#F9F7F2' : '#FDFCF8', borderBottom: '1px solid #F0EBE0' }}>
-                    <td style={{ padding: '10px 14px', fontWeight: 600, fontSize: '.85rem', color: G }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {item.foto && (
-                          <img src={item.foto} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
-                        )}
+                    <td style={{ padding: '9px 12px', fontWeight: 600, fontSize: '.85rem', color: G }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {item.foto && <img src={item.foto} alt="" style={{ width: 28, height: 28, borderRadius: 3, objectFit: 'cover', flexShrink: 0 }} />}
                         {item.nombre}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 14px', fontSize: '.82rem', color: '#6B8070' }}>{item.unidad}</td>
-                    <td style={{ padding: '10px 14px' }}>
-                      {/* Inline qty control */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <button onClick={() => setQty(item.id, item.qty - 1)} style={qBtn}>−</button>
-                        <span style={{ fontSize: '.9rem', fontWeight: 700, minWidth: 24, textAlign: 'center' }}>{item.qty}</span>
-                        <button onClick={() => setQty(item.id, item.qty + 1)} style={qBtn}>+</button>
+                    <td style={{ padding: '9px 12px', fontSize: '.8rem', color: '#6B8070' }}>{item.unidad}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fff', borderRadius: 5, padding: '2px 6px', border: '1px solid #D0C8B4' }}>
+                        <button onClick={() => setQty(item.id, item.qty - 1)} style={{ ...QBtn, color: item.qty <= 1 ? '#ccc' : '#C62828' }}>−</button>
+                        <span style={{ fontSize: '.9rem', fontWeight: 700, minWidth: 22, textAlign: 'center' }}>{item.qty}</span>
+                        <button onClick={() => setQty(item.id, item.qty + 1)} style={{ ...QBtn, color: '#4A9E6A' }}>+</button>
                       </div>
                     </td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '.85rem', color: '#333' }}>{fmtQ(item.precio)}</td>
-                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, fontSize: '.88rem', color: '#2D6645' }}>{fmtQ(item.precio * item.qty)}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                      <button onClick={() => remove(item.id)} style={{ background: 'none', border: 'none', color: '#C62828', cursor: 'pointer', fontSize: '.8rem', padding: '2px 4px', borderRadius: 3, opacity: .7 }} title="Quitar">✕</button>
+                    <td style={{ padding: '9px 12px', textAlign: 'right', fontSize: '.85rem', color: '#555' }}>{fmtQ(item.precio)}</td>
+                    <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700, fontSize: '.88rem', color: G }}>{fmtQ(item.precio * item.qty)}</td>
+                    <td style={{ padding: '9px 6px', textAlign: 'center' }}>
+                      <button onClick={() => remove(item.id)} style={{ background: 'none', border: 'none', color: '#C62828', cursor: 'pointer', fontSize: '.78rem', opacity: .6, padding: '2px 4px' }}>✕</button>
                     </td>
                   </tr>
                 ))}
@@ -268,181 +371,115 @@ export default function Checkout() {
             </table>
           </div>
 
-          {/* ── Totals block ── */}
-          <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, padding: '16px 20px', marginBottom: 16, maxWidth: 360, marginLeft: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.83rem', color: '#6B8070', marginBottom: 6 }}>
-              <span>Subtotal (neto)</span>
-              <span>{fmtQ(neto)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.83rem', color: '#6B8070', marginBottom: 10, paddingBottom: 10, borderBottom: '1px dashed #E8DCC8' }}>
-              <span>IVA (12%)</span>
-              <span>{fmtQ(iva)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.1rem', color: G }}>
+          {/* Totals */}
+          <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, padding: '14px 20px', maxWidth: 320, marginLeft: 'auto' }}>
+            <TotalRow label="Subtotal (neto)" value={fmtQ(neto)} />
+            <TotalRow label="IVA (12%)"       value={fmtQ(iva)} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.05rem', color: G, paddingTop: 8, borderTop: '2px solid #E8DCC8', marginTop: 4 }}>
               <span>Total</span>
               <span>{fmtQ(total)}</span>
             </div>
           </div>
 
-          {/* Under minimum warning */}
           {underMin && (
-            <div style={{ padding: '10px 14px', background: '#FFF3E0', border: '1px solid #E65100', borderRadius: 6, fontSize: '.8rem', color: '#E65100', fontWeight: 600, marginBottom: 12 }}>
+            <div style={{ marginTop: 12, padding: '9px 14px', background: '#FFF3E0', border: '1px solid #E65100', borderRadius: 6, fontSize: '.8rem', color: '#E65100', fontWeight: 600 }}>
               ⚠ Mínimo de compra público: {fmtQ(minPublico)}. Falta {fmtQ(minPublico - total)}.
-            </div>
-          )}
-
-          {!user && (
-            <div style={{ padding: '10px 14px', background: '#E8F5E9', border: '1px solid #4A9E6A', borderRadius: 6, fontSize: '.8rem', color: G }}>
-              💡 <strong>¿Tenés cuenta?</strong>{' '}
-              <Link to="/login" style={{ color: G, fontWeight: 700 }}>Ingresá</Link>{' '}
-              para precios negociados y despacho más rápido.
             </div>
           )}
         </div>
 
-        {/* ── RIGHT: Confirmation panel ── */}
+        {/* ── RIGHT: Confirm panel ── */}
         <div style={{ position: 'sticky', top: 24 }}>
-          <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, padding: 20 }}>
-            <div style={{ fontWeight: 800, color: G, marginBottom: 16, fontSize: '.9rem' }}>
-              {isLoggedIn ? 'Confirmar pedido' : 'Datos para el pedido'}
+          <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, padding: 18 }}>
+            <div style={{ fontWeight: 800, color: G, marginBottom: 14, fontSize: '.88rem' }}>
+              {isLoggedIn ? 'Confirmar pedido' : 'Datos del pedido'}
             </div>
 
             {isLoggedIn ? (
-              /* LOGGED-IN: minimal confirmation */
               <>
-                {/* Sucursal selector */}
-                {sucursales.length > 0 ? (
-                  <label style={{ ...LS, marginBottom: 14 }}>
-                    Entregar en
-                    <select value={sucursalId} onChange={e => { setSucursalId(e.target.value); setEditAddr(false); }}
-                      style={{ ...IS, borderColor: sucursalId !== '__principal__' ? G : '#E8DCC8' }}>
-                      <option value="__principal__">📍 Dirección principal</option>
-                      {sucursales.map(s => (
-                        <option key={s.id} value={s.id}>🏢 {s.nombre}</option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <div style={{ fontSize: '.8rem', color: '#6B8070', marginBottom: 14, padding: '8px 12px', background: '#F5F5F0', borderRadius: 4 }}>
-                    📍 Dirección principal
+                {/* Sucursal */}
+                <label style={{ ...LS, marginBottom: 12 }}>
+                  Punto de entrega
+                  <select value={sucursalId} onChange={e => { setSucursalId(e.target.value); setEditAddr(false); }}
+                    style={{ ...IS, borderColor: sucursalId !== '__principal__' ? G : '#E8DCC8' }}>
+                    <option value="__principal__">📍 Dirección principal</option>
+                    {sucursales.map(s => <option key={s.id} value={s.id}>🏢 {s.nombre}</option>)}
+                  </select>
+                </label>
+
+                {/* Address display / override */}
+                {!editAddr ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ background: '#F5F5F0', borderRadius: 5, padding: '7px 11px', fontSize: '.8rem', color: '#333', lineHeight: 1.5, marginTop: 2 }}>
+                      {addrStr || <span style={{ color:'#C62828' }}>Sin dirección</span>}
+                    </div>
+                    <button onClick={() => setEditAddr(true)}
+                      style={{ marginTop: 5, padding: '3px 9px', background: 'transparent', border: '1px solid #D0C8B4', borderRadius: 4, fontSize: '.72rem', color: '#555', cursor: 'pointer', fontWeight: 600 }}>
+                      ✏ Cambiar
+                    </button>
                     {!addr?.direccion && (
-                      <div style={{ marginTop: 6, color: '#C62828', fontWeight: 600 }}>
-                        ⚠ Sin dirección.{' '}
-                        <Link to="/cuenta/perfil" style={{ color: '#C62828' }}>Completar perfil →</Link>
+                      <div style={{ marginTop: 5, fontSize: '.75rem', color: '#C62828', fontWeight: 600 }}>
+                        ⚠ <Link to="/cuenta/perfil" style={{ color:'#C62828' }}>Completar perfil →</Link>
                       </div>
                     )}
                   </div>
-                )}
-
-                {/* Address override */}
-                {!editAddr ? (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: '.78rem', color: '#6B8070', marginBottom: 4 }}>Dirección de entrega</div>
-                    <div style={{ background: '#F5F5F0', borderRadius: 6, padding: '8px 12px', fontSize: '.82rem', color: '#333', lineHeight: 1.5 }}>
-                      {addrStr || <span style={{ color:'#C62828' }}>Sin dirección guardada</span>}
-                    </div>
-                    <button onClick={() => setEditAddr(true)}
-                      style={{ marginTop: 6, padding: '4px 10px', background: 'transparent', border: '1px solid #D0C8B4', borderRadius: 4, fontSize: '.73rem', color: '#555', cursor: 'pointer', fontWeight: 600 }}>
-                      ✏ Cambiar dirección
-                    </button>
-                  </div>
                 ) : (
-                  <div style={{ marginBottom: 14 }}>
+                  <div style={{ marginBottom: 12 }}>
                     <AddressForm value={addr} onChange={v => sf('direccion', v)} required />
                     <button onClick={() => setEditAddr(false)}
-                      style={{ marginTop: 6, padding: '4px 10px', background: 'transparent', border: '1px solid #D0C8B4', borderRadius: 4, fontSize: '.73rem', color: '#555', cursor: 'pointer' }}>
+                      style={{ marginTop: 5, padding: '3px 9px', background: 'transparent', border: '1px solid #D0C8B4', borderRadius: 4, fontSize: '.72rem', color: '#555', cursor: 'pointer' }}>
                       ✓ Usar esta
                     </button>
                   </div>
                 )}
 
-                <label style={{ ...LS, marginBottom: 14 }}>
-                  Fecha de entrega solicitada *
-                  <input type="date" value={form.fechaEntrega} min={today()} onChange={e => sf('fechaEntrega', e.target.value)} style={IS} />
-                </label>
-
-                <label style={{ ...LS, marginBottom: 16 }}>
-                  Notas adicionales
-                  <textarea value={form.notas} onChange={e => sf('notas', e.target.value)} rows={2}
-                    style={{ ...IS, resize: 'vertical' }} placeholder="Horario, instrucciones especiales..." />
-                </label>
-
-                <div style={{ background: '#F0F7F2', border: '1px solid #B0CCB8', borderRadius: 6, padding: '10px 12px', fontSize: '.75rem', color: G, marginBottom: 14 }}>
-                  <strong>ℹ Al confirmar</strong>, tu pedido queda registrado. Te avisamos por email cuando sea aprobado y cuando vaya en ruta.
-                </div>
-
-                <Link to="/cuenta/perfil" style={{ display: 'block', textAlign: 'center', fontSize: '.73rem', color: '#4A9E6A', fontWeight: 600, textDecoration: 'none', marginBottom: 12 }}>
-                  ✏ Actualizar mis datos →
-                </Link>
-              </>
-            ) : (
-              /* GUEST: full form */
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
-                  <label style={{ ...LS, marginBottom: 12, gridColumn: 'span 2' }}>
-                    Nombre / Contacto *
-                    <input value={form.nombre} onChange={e => sf('nombre', e.target.value)} style={IS} />
-                  </label>
-                  <label style={{ ...LS, marginBottom: 12 }}>
-                    Empresa
-                    <input value={form.empresa} onChange={e => sf('empresa', e.target.value)} style={IS} />
-                  </label>
-                  <label style={{ ...LS, marginBottom: 12 }}>
-                    NIT
-                    <input value={form.nit} onChange={e => sf('nit', e.target.value)} style={IS} />
-                  </label>
-                  <label style={{ ...LS, marginBottom: 12 }}>
-                    Teléfono *
-                    <input value={form.telefono} onChange={e => sf('telefono', e.target.value)} style={IS} />
-                  </label>
-                  <label style={{ ...LS, marginBottom: 12 }}>
-                    Email
-                    <input type="email" value={form.email} onChange={e => sf('email', e.target.value)} style={IS} />
-                  </label>
-                </div>
-
-                <div style={{ fontSize: '.78rem', fontWeight: 700, color: '#6B8070', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6, marginTop: 4 }}>
-                  Dirección de entrega
-                </div>
-                <AddressForm value={form.direccion} onChange={v => sf('direccion', v)} required />
-
-                <label style={{ ...LS, marginBottom: 12, marginTop: 8 }}>
+                <label style={{ ...LS, marginBottom: 12 }}>
                   Fecha de entrega *
                   <input type="date" value={form.fechaEntrega} min={today()} onChange={e => sf('fechaEntrega', e.target.value)} style={IS} />
                 </label>
 
-                <label style={{ ...LS, marginBottom: 16 }}>
+                <label style={{ ...LS, marginBottom: 14 }}>
                   Notas
                   <textarea value={form.notas} onChange={e => sf('notas', e.target.value)} rows={2}
                     style={{ ...IS, resize: 'vertical' }} placeholder="Horario, instrucciones..." />
                 </label>
+
+                <Link to="/cuenta/perfil" style={{ display: 'block', textAlign: 'center', fontSize: '.72rem', color: '#4A9E6A', fontWeight: 600, textDecoration: 'none', marginBottom: 12 }}>
+                  ✏ Actualizar mis datos →
+                </Link>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 8px' }}>
+                  <label style={{ ...LS, marginBottom: 10, gridColumn: 'span 2' }}>Nombre *<input value={form.nombre} onChange={e => sf('nombre', e.target.value)} style={IS} /></label>
+                  <label style={{ ...LS, marginBottom: 10 }}>Empresa<input value={form.empresa} onChange={e => sf('empresa', e.target.value)} style={IS} /></label>
+                  <label style={{ ...LS, marginBottom: 10 }}>NIT<input value={form.nit} onChange={e => sf('nit', e.target.value)} style={IS} /></label>
+                  <label style={{ ...LS, marginBottom: 10 }}>Teléfono *<input value={form.telefono} onChange={e => sf('telefono', e.target.value)} style={IS} /></label>
+                  <label style={{ ...LS, marginBottom: 10 }}>Email<input type="email" value={form.email} onChange={e => sf('email', e.target.value)} style={IS} /></label>
+                </div>
+                <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#6B8070', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 5 }}>Dirección de entrega</div>
+                <AddressForm value={form.direccion} onChange={v => sf('direccion', v)} required />
+                <label style={{ ...LS, marginTop: 10, marginBottom: 10 }}>Fecha de entrega *<input type="date" value={form.fechaEntrega} min={today()} onChange={e => sf('fechaEntrega', e.target.value)} style={IS} /></label>
+                <label style={{ ...LS, marginBottom: 14 }}>Notas<textarea value={form.notas} onChange={e => sf('notas', e.target.value)} rows={2} style={{ ...IS, resize:'vertical' }} /></label>
               </>
             )}
 
-            {/* ── Total summary in confirm panel ── */}
-            <div style={{ background: '#F5F5F0', borderRadius: 6, padding: '10px 14px', marginBottom: 14, fontSize: '.8rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6B8070', marginBottom: 3 }}>
-                <span>Subtotal neto</span><span>{fmtQ(neto)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6B8070', marginBottom: 6 }}>
-                <span>IVA 12%</span><span>{fmtQ(iva)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '.95rem', color: G }}>
-                <span>Total</span><span>{fmtQ(total)}</span>
-              </div>
+            {/* Mini totals */}
+            <div style={{ background: '#F5F5F0', borderRadius: 5, padding: '9px 12px', marginBottom: 12, fontSize: '.78rem' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', color:'#6B8070', marginBottom:2 }}><span>Subtotal neto</span><span>{fmtQ(neto)}</span></div>
+              <div style={{ display:'flex', justifyContent:'space-between', color:'#6B8070', marginBottom:6 }}><span>IVA 12%</span><span>{fmtQ(iva)}</span></div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontWeight:800, fontSize:'.92rem', color:G }}><span>Total</span><span>{fmtQ(total)}</span></div>
             </div>
 
             <button
               onClick={handleSubmit}
               disabled={saving || underMin}
-              style={{ width: '100%', padding: '13px', background: (saving || underMin) ? '#ccc' : G, color: '#F5F0E4', border: 'none', borderRadius: 4, fontWeight: 800, fontSize: '.9rem', cursor: (saving || underMin) ? 'not-allowed' : 'pointer' }}
+              style={{ width:'100%', padding:'13px', background:(saving||underMin)?'#ccc':G, color:'#F5F0E4', border:'none', borderRadius:4, fontWeight:800, fontSize:'.88rem', cursor:(saving||underMin)?'not-allowed':'pointer' }}
             >
-              {saving ? 'Enviando...' : isLoggedIn ? '✓ Confirmar Orden de Compra' : 'Enviar pedido →'}
+              {saving ? 'Generando OC...' : isLoggedIn ? '✓ Confirmar Orden de Compra' : 'Generar Orden →'}
             </button>
 
-            <div style={{ marginTop: 10, fontSize: '.72rem', color: '#aaa', textAlign: 'center' }}>
-              📋 Pago se coordina al confirmar
-            </div>
+            <div style={{ marginTop: 8, fontSize: '.7rem', color: '#aaa', textAlign: 'center' }}>📋 Pago se coordina al confirmar</div>
           </div>
         </div>
 
@@ -454,14 +491,22 @@ export default function Checkout() {
 function InfoCell({ label, value, span }) {
   return (
     <div style={{ gridColumn: span ? 'span 2' : undefined }}>
-      <div style={{ fontSize: '.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: '#6B8070' }}>{label}</div>
+      <div style={{ fontSize: '.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: '#6B8070' }}>{label}</div>
       <div style={{ fontSize: '.82rem', color: '#1A1A18', marginTop: 1 }}>{value}</div>
     </div>
   );
 }
 
-const qBtn = {
-  width: 24, height: 24, borderRadius: 4, border: '1px solid #E8DCC8',
-  background: '#F0EDE6', cursor: 'pointer', fontSize: '.88rem',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
+function TotalRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.82rem', color: '#6B8070', marginBottom: 4 }}>
+      <span>{label}</span><span>{value}</span>
+    </div>
+  );
+}
+
+const QBtn = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: '1rem', fontWeight: 900, padding: '0 1px', lineHeight: 1,
+  display: 'flex', alignItems: 'center',
 };

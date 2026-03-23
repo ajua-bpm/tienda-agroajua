@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useCart } from '../contexts/CartContext.jsx';
-import CartDrawer from './CartDrawer.jsx';
 
 const G = '#1A3D28';
 
@@ -10,7 +9,6 @@ export default function Navbar() {
   const { user, cliente, logout, isAdmin } = useAuth();
   const { count } = useCart();
   const navigate = useNavigate();
-  const [cartOpen, setCartOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -60,20 +58,13 @@ export default function Navbar() {
             </Link>
           )}
           <button
-            onClick={() => setCartOpen(true)}
-            style={{ position: 'relative', background: '#4A9E6A', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: 4, cursor: 'pointer', fontWeight: 700, fontSize: '.8rem' }}
+            onClick={() => navigate('/checkout')}
+            style={{ position: 'relative', background: count > 0 ? '#4A9E6A' : 'rgba(255,255,255,.12)', color: '#fff', border: count > 0 ? 'none' : '1.5px solid rgba(255,255,255,.2)', padding: '8px 16px', borderRadius: 4, cursor: 'pointer', fontWeight: 700, fontSize: '.8rem' }}
           >
-            🛒 Carrito
-            {count > 0 && (
-              <span style={{ position: 'absolute', top: -6, right: -6, background: '#e67e22', color: '#fff', borderRadius: '50%', fontSize: '.58rem', fontWeight: 800, width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {count}
-              </span>
-            )}
+            📋 {count > 0 ? `Mi OC (${count})` : 'Mi OC'}
           </button>
         </div>
       </nav>
-
-      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
 
       {menuOpen && <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />}
     </>
