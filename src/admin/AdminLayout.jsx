@@ -12,6 +12,7 @@ const LINKS = [
   { to: '/admin/facturacion', label: '🧾 Facturación' },
   { to: '/admin/pagos',    label: '💰 Pagos' },
   { to: '/admin/listas',   label: '💲 Listas de Precio' },
+  { to: '/admin/importar', label: '⬆️ Carga Masiva' },
   { to: '/admin/config',   label: '⚙️ Configuración' },
 ];
 

@@ -23,6 +23,7 @@ import AdminFacturacion from './admin/AdminFacturacion.jsx';
 import AdminPagos       from './admin/AdminPagos.jsx';
 import AdminListas      from './admin/AdminListas.jsx';
 import AdminConfig      from './admin/AdminConfig.jsx';
+import AdminImport      from './admin/AdminImport.jsx';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="facturacion" element={<AdminFacturacion />} />
         <Route path="pagos"     element={<AdminPagos />} />
         <Route path="listas"    element={<AdminListas />} />
+        <Route path="importar"  element={<AdminImport />} />
         <Route path="config"    element={<AdminConfig />} />
       </Route>
 

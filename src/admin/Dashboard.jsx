@@ -18,9 +18,9 @@ function Metric({ label, value, sub, accent, to }) {
 }
 
 export default function Dashboard() {
-  const { data: ordenes }   = useCollection('t_ordenes',   { orderField: 'creadoEn', limitN: 500 });
-  const { data: productos }  = useCollection('t_productos', { orderField: 'nombre',   limitN: 300 });
-  const { data: clientes }   = useCollection('t_clientes',  { orderField: 'nombre',   limitN: 300 });
+  const { data: ordenes }   = useCollection('t_ordenes',   { orderField: 'fecha',  orderDir: 'desc', limitN: 500 });
+  const { data: productos }  = useCollection('t_productos', { orderField: 'nombre',  limitN: 300 });
+  const { data: clientes }   = useCollection('t_clientes',  { limitN: 300 });
 
   const today = new Date().toISOString().slice(0, 10);
 
