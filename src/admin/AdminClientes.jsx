@@ -3,6 +3,7 @@ import { useCollection, useWrite } from '../hooks/useFirestore.js';
 import { useToast } from '../components/Toast.jsx';
 import { fmtDate, fmtQ, TIER_LABEL, TIER_COLOR } from '../utils/format.js';
 import Badge from '../components/Badge.jsx';
+import { TIPOS_NEGOCIO } from '../utils/catalogos.js';
 
 const G = '#1A3D28';
 const thSt = { color:'#fff', padding:'9px 12px', fontSize:'.7rem', fontWeight:700, textAlign:'left', textTransform:'uppercase', background: G };
@@ -49,14 +50,16 @@ export default function AdminClientes() {
   const openDetail = c => {
     setSelected(c);
     setEditForm({
-      nombre:   c.nombre   || '',
-      empresa:  c.empresa  || '',
-      telefono: c.telefono || '',
-      nit:      c.nit      || '',
-      tier:     c.tier     || 'general',
-      listaId:  c.listaId  || 'general',
-      activo:   c.activo !== false,
-      rol:      c.rol      || '',
+      nombre:      c.nombre      || '',
+      empresa:     c.empresa     || '',
+      tipo:        c.tipo        || 'individual',
+      tipoNegocio: c.tipoNegocio || '',
+      telefono:    c.telefono    || '',
+      nit:         c.nit         || '',
+      tier:        c.tier        || 'general',
+      listaId:     c.listaId     || 'general',
+      activo:      c.activo !== false,
+      rol:         c.rol         || '',
     });
   };
 
@@ -127,7 +130,11 @@ export default function AdminClientes() {
                       <div style={{ fontSize:'.72rem', color:'#888' }}>{c.email}</div>
                       {c.rol === 'admin' && <span style={{ fontSize:'.65rem', background:'#E8F5E9', color:G, borderRadius:3, padding:'1px 5px', fontWeight:700 }}>ADMIN</span>}
                     </td>
-                    <td style={{ ...tdSt, color:'#888' }}>{c.empresa || '—'}</td>
+                    <td style={{ ...tdSt, color:'#888' }}>
+                      <div>{c.empresa || '—'}</div>
+                      {c.tipoNegocio && <div style={{ fontSize:'.68rem', color:'#4A9E6A', fontWeight:600 }}>{c.tipoNegocio}</div>}
+                      {(c.sucursales?.length > 0) && <div style={{ fontSize:'.65rem', color:'#888' }}>{c.sucursales.length} sucursal{c.sucursales.length !== 1 ? 'es' : ''}</div>}
+                    </td>
                     <td style={tdSt}><Badge label={TIER_LABEL[c.tier] || c.tier || 'General'} bg={bg} color={color} /></td>
                     <td style={{ ...tdSt, fontSize:'.78rem', color:'#555' }}>{listaLabel}</td>
                     <td style={{ ...tdSt, textAlign:'center', fontWeight:700, color: nOrdenes ? G : '#ccc' }}>{nOrdenes}</td>
@@ -162,6 +169,25 @@ export default function AdminClientes() {
             <div style={{ padding:18 }}>
               {/* Edit form */}
               <div style={{ fontWeight:700, fontSize:'.75rem', textTransform:'uppercase', color:'#888', letterSpacing:'.06em', marginBottom:12 }}>Datos del cliente</div>
+
+              {/* Tipo */}
+              <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                {[['individual','👤 Individual'],['negocio','🏢 Negocio']].map(([val,lbl]) => (
+                  <button key={val} type="button" onClick={() => ef('tipo', val)}
+                    style={{ flex:1, padding:'6px 6px', border:`2px solid ${editForm.tipo === val ? G : '#E0E0E0'}`, borderRadius:5, background: editForm.tipo === val ? '#E8F5E9' : '#fff', color: editForm.tipo === val ? G : '#888', fontWeight: editForm.tipo === val ? 700 : 500, fontSize:'.75rem', cursor:'pointer' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {editForm.tipo === 'negocio' && (
+                <label style={LS}>
+                  Tipo de negocio
+                  <select value={editForm.tipoNegocio} onChange={e => ef('tipoNegocio', e.target.value)} style={IS}>
+                    <option value="">— Seleccionar —</option>
+                    {TIPOS_NEGOCIO.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </label>
+              )}
 
               <label style={LS}>Nombre<input value={editForm.nombre} onChange={e => ef('nombre', e.target.value)} style={IS} /></label>
               <label style={LS}>Empresa<input value={editForm.empresa} onChange={e => ef('empresa', e.target.value)} style={IS} /></label>
@@ -205,6 +231,26 @@ export default function AdminClientes() {
               <button onClick={handleSave} disabled={saving} style={{ width:'100%', padding:'10px', background: saving ? '#ccc' : G, color:'#fff', border:'none', borderRadius:4, fontWeight:700, fontSize:'.83rem', cursor: saving ? 'not-allowed' : 'pointer', marginBottom:18 }}>
                 {saving ? 'Guardando…' : '✓ Guardar cambios'}
               </button>
+
+              {/* Sucursales (read-only in admin) */}
+              {selected.tipo === 'negocio' && (selected.sucursales || []).length > 0 && (
+                <div style={{ borderTop:'1px solid #F0F0EC', paddingTop:14, marginBottom:14 }}>
+                  <div style={{ fontWeight:700, fontSize:'.75rem', textTransform:'uppercase', color:'#888', letterSpacing:'.06em', marginBottom:8 }}>
+                    Sucursales ({selected.sucursales.length})
+                  </div>
+                  {selected.sucursales.map(s => (
+                    <div key={s.id} style={{ background:'#F5F5F0', borderRadius:5, padding:'8px 10px', marginBottom:6, fontSize:'.78rem' }}>
+                      <div style={{ fontWeight:700, color:G }}>{s.nombre}</div>
+                      {s.contacto && <div style={{ color:'#555', marginTop:2 }}>{s.contacto} {s.telefono ? `· ${s.telefono}` : ''}</div>}
+                      {s.direccion?.direccion && (
+                        <div style={{ color:'#888', marginTop:2 }}>
+                          {[s.direccion.direccion, s.direccion.zona, s.direccion.municipio, s.direccion.departamento].filter(Boolean).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Order history */}
               <div style={{ borderTop:'1px solid #F0F0EC', paddingTop:14 }}>

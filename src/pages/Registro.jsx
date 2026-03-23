@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import { TIPOS_NEGOCIO } from '../utils/catalogos.js';
 
 const G = '#1A3D28';
 const LS = { display:'flex', flexDirection:'column', gap:4, fontSize:'.75rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#555', marginBottom:12 };
@@ -9,20 +10,36 @@ const IS = { padding:'10px 12px', border:'1.5px solid #E8DCC8', borderRadius:4, 
 
 export default function Registro() {
   const { register } = useAuth();
-  const toast = useToast();
+  const toast  = useToast();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ nombre: '', empresa: '', email: '', telefono: '', pass: '', pass2: '' });
+
+  const [form, setForm] = useState({
+    tipo:         'individual',   // 'individual' | 'negocio'
+    tipoNegocio:  '',
+    nombre:       '',
+    empresa:      '',
+    telefono:     '',
+    email:        '',
+    pass:         '',
+    pass2:        '',
+  });
   const [loading, setLoading] = useState(false);
   const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const esNegocio = form.tipo === 'negocio';
 
   const handleSubmit = async e => {
     e.preventDefault();
     if (!form.nombre || !form.email || !form.pass) { toast('Completá los campos requeridos', 'warn'); return; }
+    if (esNegocio && !form.empresa) { toast('Ingresá el nombre de tu negocio', 'warn'); return; }
     if (form.pass !== form.pass2) { toast('Las contraseñas no coinciden', 'error'); return; }
     if (form.pass.length < 6) { toast('Contraseña mínimo 6 caracteres', 'warn'); return; }
     setLoading(true);
     try {
-      await register(form.email, form.pass, form.nombre, form.telefono);
+      await register(form.email, form.pass, form.nombre, form.telefono, {
+        tipo:        form.tipo,
+        tipoNegocio: esNegocio ? form.tipoNegocio : '',
+        empresa:     form.empresa,
+      });
       toast('✓ Cuenta creada. ¡Bienvenido a AJÚA Tienda!');
       navigate('/');
     } catch (err) {
@@ -33,7 +50,7 @@ export default function Registro() {
 
   return (
     <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px' }}>
-      <div style={{ width: '100%', maxWidth: 420 }}>
+      <div style={{ width: '100%', maxWidth: 460 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: '2rem', marginBottom: 6 }}>🌿</div>
           <h1 style={{ fontSize: '1.15rem', fontWeight: 800, color: G }}>Crear cuenta cliente</h1>
@@ -41,19 +58,52 @@ export default function Registro() {
         </div>
 
         <form onSubmit={handleSubmit} style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 10, padding: 28, boxShadow: '0 4px 20px rgba(26,61,40,.08)' }}>
+
+          {/* Tipo de cuenta */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: '#555', marginBottom: 8 }}>Tipo de cuenta</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {[['individual', '👤 Individual / Persona'], ['negocio', '🏢 Negocio / Empresa']].map(([val, label]) => (
+                <button key={val} type="button" onClick={() => s('tipo', val)}
+                  style={{ flex: 1, padding: '10px 8px', border: `2px solid ${form.tipo === val ? G : '#E8DCC8'}`, borderRadius: 6, background: form.tipo === val ? '#F0F7F2' : '#fff', color: form.tipo === val ? G : '#888', fontWeight: form.tipo === val ? 700 : 500, fontSize: '.82rem', cursor: 'pointer', transition: 'all .15s' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
             <label style={{ ...LS, gridColumn: 'span 2' }}>
-              Nombre completo *
+              Nombre completo / Contacto *
               <input value={form.nombre} onChange={e => s('nombre', e.target.value)} placeholder="Tu nombre" style={IS} autoFocus />
             </label>
-            <label style={LS}>
-              Empresa / Negocio
-              <input value={form.empresa} onChange={e => s('empresa', e.target.value)} placeholder="Opcional" style={IS} />
-            </label>
-            <label style={LS}>
+
+            {esNegocio && <>
+              <label style={{ ...LS, gridColumn: 'span 2' }}>
+                Nombre del negocio *
+                <input value={form.empresa} onChange={e => s('empresa', e.target.value)} placeholder="Restaurante Don Pepito" style={IS} />
+              </label>
+              <label style={{ ...LS, gridColumn: 'span 2' }}>
+                Tipo de negocio
+                <select value={form.tipoNegocio} onChange={e => s('tipoNegocio', e.target.value)} style={IS}>
+                  <option value="">— Seleccionar —</option>
+                  {TIPOS_NEGOCIO.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </label>
+            </>}
+
+            {!esNegocio && (
+              <label style={LS}>
+                Empresa (opcional)
+                <input value={form.empresa} onChange={e => s('empresa', e.target.value)} placeholder="Donde trabajás" style={IS} />
+              </label>
+            )}
+
+            <label style={esNegocio ? LS : { ...LS }}>
               Teléfono / WhatsApp
               <input value={form.telefono} onChange={e => s('telefono', e.target.value)} placeholder="+502 ..." style={IS} />
             </label>
+
             <label style={{ ...LS, gridColumn: 'span 2' }}>
               Email *
               <input type="email" value={form.email} onChange={e => s('email', e.target.value)} placeholder="correo@empresa.com" style={IS} />

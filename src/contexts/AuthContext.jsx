@@ -44,20 +44,22 @@ export function AuthProvider({ children }) {
 
   const login = (email, pass) => signInWithEmailAndPassword(auth, email, pass);
 
-  const register = async (email, pass, nombre, telefono = '') => {
+  const register = async (email, pass, nombre, telefono = '', extra = {}) => {
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
     const profile = {
-      uid:      cred.user.uid,
+      uid:         cred.user.uid,
       email,
       nombre,
       telefono,
-      tier:     'general',
-      listaId:  'general',
-      activo:   false, // pending admin approval for negotiated; general auto-active
-      creadoEn: serverTimestamp(),
+      empresa:     extra.empresa     || '',
+      tipo:        extra.tipo        || 'individual',   // 'individual' | 'negocio'
+      tipoNegocio: extra.tipoNegocio || '',
+      sucursales:  [],               // [{ id, nombre, direccion, telefono, contacto }]
+      tier:        'general',
+      listaId:     'general',
+      activo:      true,
+      creadoEn:    serverTimestamp(),
     };
-    // Auto-activate general tier
-    profile.activo = true;
     await setDoc(doc(db, 't_clientes', cred.user.uid), profile);
     setCliente({ id: cred.user.uid, ...profile });
     return cred;

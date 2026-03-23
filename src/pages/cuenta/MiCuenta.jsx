@@ -45,7 +45,7 @@ export default function MiCuenta() {
         </div>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <NavLink to="/cuenta/ordenes" style={({ isActive }) => navLinkStyle(isActive)}>📋 Mis pedidos</NavLink>
-          <NavLink to="/cuenta" end style={({ isActive }) => navLinkStyle(isActive)}>👤 Mi perfil</NavLink>
+          <NavLink to="/cuenta/perfil" style={({ isActive }) => navLinkStyle(isActive)}>👤 Mi perfil</NavLink>
         </nav>
       </div>
 

@@ -11,6 +11,7 @@ import Registro  from './pages/Registro.jsx';
 // Customer account
 import MiCuenta    from './pages/cuenta/MiCuenta.jsx';
 import MisOrdenes  from './pages/cuenta/MisOrdenes.jsx';
+import MiPerfil    from './pages/cuenta/MiPerfil.jsx';
 
 // Admin
 import AdminLayout      from './admin/AdminLayout.jsx';
@@ -55,8 +56,9 @@ export default function App() {
 
       {/* Customer account (requires auth) */}
       <Route path="/cuenta" element={<RequireAuth><PublicLayout><MiCuenta /></PublicLayout></RequireAuth>}>
-        <Route index       element={<MisOrdenes />} />
+        <Route index          element={<MisOrdenes />} />
         <Route path="ordenes" element={<MisOrdenes />} />
+        <Route path="perfil"  element={<MiPerfil />} />
       </Route>
 
       {/* Admin panel (requires admin role — checked inside AdminLayout) */}

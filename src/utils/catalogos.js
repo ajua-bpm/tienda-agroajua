@@ -153,6 +153,20 @@ export const MUNICIPIOS_GT = {
 // Zonas para Guatemala Ciudad
 export const ZONAS_GUATEMALA = Array.from({ length: 25 }, (_, i) => `Zona ${i + 1}`);
 
+// Tipos de negocio para clientes empresariales
+export const TIPOS_NEGOCIO = [
+  'Restaurante',
+  'Hotel',
+  'Bar / Cantina',
+  'Cafetería / Coffee Shop',
+  'Catering / Banquetes',
+  'Supermercado / Tienda',
+  'Comedor',
+  'Distribuidora',
+  'Procesadora de alimentos',
+  'Otro',
+];
+
 // Estados de orden con labels en español
 export const ESTADOS_LABEL = {
   nueva:       'Nuevo',
