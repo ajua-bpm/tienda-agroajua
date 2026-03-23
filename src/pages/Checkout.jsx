@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import AddressForm from '../components/AddressForm.jsx';
 import { db, doc, getDoc, addDoc, collection, serverTimestamp } from '../firebase.js';
 import { nextCorrelativo } from '../utils/correlativo.js';
 import { checkMinimo } from '../utils/precios.js';
 import { fmtQ, today } from '../utils/format.js';
+import { notifyNuevoPedido } from '../utils/mail.js';
 
 const G = '#1A3D28';
 const LS = { display:'flex', flexDirection:'column', gap:4, fontSize:'.75rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#6B8070' };
@@ -26,7 +28,7 @@ export default function Checkout() {
     nit:       'CF',
     telefono:  '',
     email:     '',
-    direccion: '',
+    direccion: { pais:'Guatemala', departamento:'', municipio:'', zona:'', direccion:'', referencias:'' },
     fechaEntrega: '',
     notas:     '',
   });
@@ -48,8 +50,11 @@ export default function Checkout() {
   const s = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async () => {
-    if (!form.nombre || !form.telefono || !form.direccion) {
-      toast('Nombre, teléfono y dirección son requeridos', 'error'); return;
+    if (!form.nombre || !form.telefono) {
+      toast('Nombre y teléfono son requeridos', 'error'); return;
+    }
+    if (!form.direccion?.direccion) {
+      toast('Dirección de entrega es requerida', 'error'); return;
     }
     if (!form.fechaEntrega) {
       toast('Selecciona una fecha de entrega', 'error'); return;
@@ -79,7 +84,8 @@ export default function Checkout() {
         nit:          form.nit,
         telefono:     form.telefono,
         email:        form.email,
-        direccion:    form.direccion,
+        direccion:    form.direccion,    // { pais, departamento, municipio, zona, direccion, referencias }
+        direccionStr: [form.direccion.direccion, form.direccion.municipio, form.direccion.departamento, form.direccion.zona].filter(Boolean).join(', '),
         notas:        form.notas,
         // Items
         items: items.map(i => ({
@@ -100,6 +106,7 @@ export default function Checkout() {
 
       await addDoc(collection(db, 't_ordenes'), orden);
       clear();
+      notifyNuevoPedido(orden);   // non-blocking
       toast(`✓ Pedido ${correlativo} enviado correctamente`);
       navigate(`/cuenta/ordenes`);
     } catch (e) {
@@ -144,7 +151,7 @@ export default function Checkout() {
           </Section>
 
           <Section title="Entrega">
-            <label style={LS}>Dirección de entrega *<textarea value={form.direccion} onChange={e => s('direccion', e.target.value)} rows={2} style={{ ...IS, resize: 'vertical' }} /></label>
+            <AddressForm value={form.direccion} onChange={v => s('direccion', v)} required />
             <label style={{ ...LS, marginTop: 12 }}>Fecha de entrega solicitada *<input type="date" value={form.fechaEntrega} min={today()} onChange={e => s('fechaEntrega', e.target.value)} style={IS} /></label>
             <label style={{ ...LS, marginTop: 12 }}>Notas adicionales<textarea value={form.notas} onChange={e => s('notas', e.target.value)} rows={2} style={{ ...IS, resize: 'vertical' }} placeholder="Horario, acceso, temperatura requerida..." /></label>
           </Section>

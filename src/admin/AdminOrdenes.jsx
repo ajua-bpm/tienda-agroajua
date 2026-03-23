@@ -3,6 +3,7 @@ import { useCollection, useWrite } from '../hooks/useFirestore.js';
 import { useToast } from '../components/Toast.jsx';
 import { fmtQ, fmtDate, estadoColor, ESTADOS_ORDEN, cap } from '../utils/format.js';
 import Badge from '../components/Badge.jsx';
+import { notifyCambioEstado } from '../utils/mail.js';
 
 const G = '#1A3D28';
 const thSt = { color:'#fff', padding:'9px 12px', fontSize:'.7rem', fontWeight:700, textAlign:'left', textTransform:'uppercase', whiteSpace:'nowrap', background: G };
@@ -35,6 +36,9 @@ export default function AdminOrdenes() {
   const cambiarEstado = async (id, estado) => {
     await update(id, { estado });
     toast(`Estado actualizado: ${cap(estado)}`);
+    // Find the full order to pass to notifier
+    const orden = ordenes.find(o => o.id === id);
+    if (orden) notifyCambioEstado({ ...orden, estado }, estado);  // non-blocking
     if (selected?.id === id) setSelected(o => ({ ...o, estado }));
   };
 
@@ -115,7 +119,12 @@ export default function AdminOrdenes() {
             <DetailRow label="NIT" value={selected.nit || 'CF'} />
             <DetailRow label="Teléfono" value={selected.telefono || '—'} />
             <DetailRow label="Email" value={selected.email || '—'} />
-            <DetailRow label="Dirección" value={selected.direccion || '—'} />
+            <DetailRow label="Dirección" value={
+              selected.direccionStr ||
+              (typeof selected.direccion === 'object'
+                ? [selected.direccion.direccion, selected.direccion.zona, selected.direccion.municipio, selected.direccion.departamento, selected.direccion.pais].filter(Boolean).join(', ')
+                : selected.direccion) || '—'
+            } />
             <DetailRow label="Fecha entrega" value={fmtDate(selected.fechaEntrega)} />
             <DetailRow label="Notas" value={selected.notas || '—'} />
 

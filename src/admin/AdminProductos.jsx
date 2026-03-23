@@ -3,6 +3,7 @@ import { useCollection, useWrite } from '../hooks/useFirestore.js';
 import { useToast } from '../components/Toast.jsx';
 import { fmtQ } from '../utils/format.js';
 import { storage, ref, uploadBytes, getDownloadURL } from '../firebase.js';
+import { CATEGORIAS, UNIDADES } from '../utils/catalogos.js';
 
 const G = '#1A3D28';
 const LS = { display:'flex', flexDirection:'column', gap:4, fontSize:'.72rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#555' };
@@ -130,8 +131,18 @@ export default function AdminProductos() {
           <label style={LS}>Nombre *<input value={form.nombre} onChange={e => s('nombre', e.target.value)} style={IS} /></label>
           <label style={{ ...LS, marginTop: 10 }}>Descripción<textarea value={form.descripcion} onChange={e => s('descripcion', e.target.value)} rows={2} style={{ ...IS, resize: 'vertical' }} /></label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px' }}>
-            <label style={{ ...LS, marginTop: 10 }}>Categoría<input value={form.categoria} onChange={e => s('categoria', e.target.value)} placeholder="verdura, fruta..." style={IS} /></label>
-            <label style={{ ...LS, marginTop: 10 }}>Unidad<input value={form.unidad} onChange={e => s('unidad', e.target.value)} placeholder="caja, kg, unidad..." style={IS} /></label>
+            <label style={{ ...LS, marginTop: 10 }}>Categoría
+              <select value={form.categoria} onChange={e => s('categoria', e.target.value)} style={IS}>
+                <option value="">— Seleccionar —</option>
+                {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label style={{ ...LS, marginTop: 10 }}>Unidad
+              <select value={form.unidad} onChange={e => s('unidad', e.target.value)} style={IS}>
+                <option value="">— Seleccionar —</option>
+                {UNIDADES.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </label>
             <label style={{ ...LS, marginTop: 10 }}>Precio público (Q)<input type="number" min="0" step="0.01" value={form.precioPublico} onChange={e => s('precioPublico', e.target.value)} style={IS} /></label>
             <label style={{ ...LS, marginTop: 10 }}>Precio general (Q)<input type="number" min="0" step="0.01" value={form.precioGeneral} onChange={e => s('precioGeneral', e.target.value)} style={IS} /></label>
             <label style={{ ...LS, marginTop: 10 }}>Emoji<input value={form.emoji} onChange={e => s('emoji', e.target.value)} placeholder="🥬" style={IS} /></label>

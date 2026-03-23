@@ -1,49 +1,58 @@
 import { useState, useRef } from 'react';
-import { db, collection, addDoc, setDoc, doc, getDocs, query, where, serverTimestamp } from '../firebase.js';
+import * as XLSX from 'xlsx';
+import { db, collection, addDoc, setDoc, doc, getDocs, serverTimestamp } from '../firebase.js';
 import { useCollection } from '../hooks/useFirestore.js';
 import { useToast } from '../components/Toast.jsx';
-import { fmtQ } from '../utils/format.js';
+import { CATEGORIAS, UNIDADES } from '../utils/catalogos.js';
 
 const G = '#1A3D28';
+const LS = { display:'flex', flexDirection:'column', gap:4, fontSize:'.72rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#555', marginBottom:10 };
+const IS = { padding:'8px 10px', border:'1.5px solid #E0E0E0', borderRadius:4, fontSize:'.83rem', outline:'none', fontFamily:'inherit', width:'100%', marginTop:2 };
 
-// ── CSV parser (handles quoted fields with commas) ─────────────────
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  return lines.slice(1).filter(l => l.trim()).map(line => {
-    const vals = [];
-    let cur = '', inQ = false;
-    for (const ch of line) {
-      if (ch === '"') { inQ = !inQ; continue; }
-      if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; continue; }
-      cur += ch;
-    }
-    vals.push(cur.trim());
-    return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
+// ── Parse file: returns array of plain objects (rows) ─────────────────────────
+async function parseFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Error al leer archivo'));
+    reader.onload = ev => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        resolve(rows);
+      } catch (e) { reject(e); }
+    };
+    reader.readAsArrayBuffer(file);
   });
 }
 
-// ── Template download ──────────────────────────────────────────────
-function downloadCSV(rows, filename) {
-  const headers = Object.keys(rows[0]);
-  const lines   = [headers.join(','), ...rows.map(r => headers.map(h => `"${r[h] ?? ''}"`).join(','))];
-  const blob    = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const a       = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
+// ── Download Excel workbook ───────────────────────────────────────────────────
+function downloadXLSX(sheetData, filename, sheetName = 'Datos') {
+  const ws = XLSX.utils.json_to_sheet(sheetData);
+  // Auto column widths
+  const cols = Object.keys(sheetData[0] || {}).map(k => ({ wch: Math.max(k.length, 14) }));
+  ws['!cols'] = cols;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename);
 }
 
+// ── Normalize header keys ─────────────────────────────────────────────────────
+const norm = obj => {
+  const out = {};
+  for (const k of Object.keys(obj)) out[k.toLowerCase().trim().replace(/\s+/g, '_')] = obj[k];
+  return out;
+};
+
+// ── Templates ─────────────────────────────────────────────────────────────────
 const TEMPLATE_PRODUCTOS = [
-  { nombre:'Repollo Verde', descripcion:'Caja 4 unidades calibre A', categoria:'verdura', unidad:'caja', preciopublico:'45', precioGeneral:'38', emoji:'🥬' },
-  { nombre:'Zanahoria Baby', descripcion:'Bolsa 1 kg lavada', categoria:'verdura', unidad:'bolsa', preciopublico:'22', precioGeneral:'18', emoji:'🥕' },
+  { Nombre:'Repollo Verde', Descripcion:'Caja 4 unidades calibre A', Categoria:'Verduras', Unidad:'Caja', PrecioPublico:45, PrecioGeneral:38, Emoji:'🥬' },
+  { Nombre:'Zanahoria Baby', Descripcion:'Bolsa 1 kg lavada', Categoria:'Verduras', Unidad:'Bolsa', PrecioPublico:22, PrecioGeneral:18, Emoji:'🥕' },
 ];
 
-const TEMPLATE_PRECIOS = [
-  { producto:'Repollo Verde', precio:'32.50' },
-  { producto:'Zanahoria Baby', precio:'15.00' },
-];
+function makeTemplatePreciosXLSX(productos) {
+  return productos.map(p => ({ Producto: p.nombre, Precio: p.precioGeneral ?? p.precioPublico ?? 0 }));
+}
 
 export default function AdminImport() {
   const { data: listas }    = useCollection('t_listas', { orderField:'nombre', limitN:50 });
@@ -51,10 +60,10 @@ export default function AdminImport() {
   const toast = useToast();
 
   // Products import
-  const [prodRows,  setProdRows]  = useState([]);
-  const [prodFile,  setProdFile]  = useState('');
-  const [importingP, setImportingP] = useState(false);
-  const [resultP,   setResultP]   = useState(null);
+  const [prodRows,    setProdRows]    = useState([]);
+  const [prodFile,    setProdFile]    = useState('');
+  const [importingP,  setImportingP]  = useState(false);
+  const [resultP,     setResultP]     = useState(null);
   const prodRef = useRef();
 
   // Price list import
@@ -66,37 +75,40 @@ export default function AdminImport() {
   const [resultL,     setResultL]     = useState(null);
   const precioRef = useRef();
 
-  // ── Read product CSV ──
-  const handleProdCSV = e => {
+  // Product name → id map
+  const prodNameMap = Object.fromEntries(
+    productos.map(p => [p.nombre.toLowerCase().trim(), p.id])
+  );
+
+  // ── Read product file ──────────────────────────────────────────────────────
+  const handleProdFile = async e => {
     const file = e.target.files[0];
     if (!file) return;
     setProdFile(file.name);
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const rows = parseCSV(ev.target.result);
-      setProdRows(rows);
+    try {
+      const rows = await parseFile(file);
+      setProdRows(rows.map(norm));
       setResultP(null);
-    };
-    reader.readAsText(file, 'utf-8');
+    } catch (err) { toast('Error al leer archivo: ' + err.message, 'error'); }
   };
 
-  // ── Import products ──
+  // ── Import products ────────────────────────────────────────────────────────
   const importarProductos = async () => {
     if (!prodRows.length) return;
     setImportingP(true);
     let ok = 0, skip = 0;
     try {
       for (const row of prodRows) {
-        const nombre = row.nombre || row.Nombre;
-        if (!nombre?.trim()) { skip++; continue; }
+        const nombre = (row.nombre || '').trim();
+        if (!nombre) { skip++; continue; }
         await addDoc(collection(db, 't_productos'), {
-          nombre:        nombre.trim(),
-          descripcion:   row.descripcion || row.Descripcion || '',
-          categoria:     (row.categoria || row.Categoria || '').toLowerCase(),
-          unidad:        row.unidad || row.Unidad || 'unidad',
-          precioPublico: parseFloat(row.preciopublico || row.precioPublico || row['precio publico'] || 0),
-          precioGeneral: parseFloat(row.precioGeneral || row.preciogeneral || row['precio general'] || row.preciopublico || 0),
-          emoji:         row.emoji || row.Emoji || '🌿',
+          nombre,
+          descripcion:   row.descripcion   || '',
+          categoria:     row.categoria      || '',
+          unidad:        row.unidad         || '',
+          precioPublico: parseFloat(row.preciopublico || row.precio_publico || 0),
+          precioGeneral: parseFloat(row.precioGeneral || row.precio_general || row.preciopublico || row.precio_publico || 0),
+          emoji:         row.emoji          || '🌿',
           enStock:       true,
           activo:        true,
           creadoEn:      serverTimestamp(),
@@ -105,68 +117,57 @@ export default function AdminImport() {
       }
       setResultP({ ok, skip });
       toast(`✓ ${ok} productos importados`);
-      setProdRows([]);
-      setProdFile('');
+      setProdRows([]); setProdFile('');
       if (prodRef.current) prodRef.current.value = '';
     } catch (err) {
-      toast('Error en importación: ' + err.message, 'error');
+      toast('Error: ' + err.message, 'error');
     } finally { setImportingP(false); }
   };
 
-  // ── Read price CSV ──
-  const handlePrecioCSV = e => {
+  // ── Read price file ────────────────────────────────────────────────────────
+  const handlePrecioFile = async e => {
     const file = e.target.files[0];
     if (!file) return;
     setPrecioFile(file.name);
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const rows = parseCSV(ev.target.result);
-      setPrecioRows(rows);
+    try {
+      const rows = await parseFile(file);
+      setPrecioRows(rows.map(norm));
       setResultL(null);
-    };
-    reader.readAsText(file, 'utf-8');
+    } catch (err) { toast('Error al leer archivo: ' + err.message, 'error'); }
   };
 
-  // Build product name→id map
-  const prodNameMap = Object.fromEntries(
-    productos.map(p => [p.nombre.toLowerCase().trim(), p.id])
-  );
-
-  // ── Import price list ──
+  // ── Import price list ──────────────────────────────────────────────────────
   const importarPrecios = async () => {
     if (!precioRows.length) return;
     if (!listaTarget && !listaNombre.trim()) {
-      toast('Seleccioná una lista existente o ingresá un nombre para la nueva', 'warn'); return;
+      toast('Seleccioná una lista existente o ingresá nombre para la nueva', 'warn'); return;
     }
     setImportingL(true);
     let ok = 0, noMatch = [];
     try {
       const items = [];
       for (const row of precioRows) {
-        const nombre  = (row.producto || row.Producto || row.nombre || row.Nombre || '').trim();
-        const precio  = parseFloat(row.precio || row.Precio || 0);
+        const nombre = (row.producto || row.nombre || '').trim();
+        const precio = parseFloat(row.precio || 0);
         if (!nombre || !precio) continue;
-        const prodId  = prodNameMap[nombre.toLowerCase()] || null;
+        const prodId = prodNameMap[nombre.toLowerCase()] || null;
         if (!prodId) { noMatch.push(nombre); continue; }
         items.push({ productoId: prodId, precio });
         ok++;
       }
 
       if (listaTarget) {
-        // Update existing list
-        const snap = await getDocs(query(collection(db, 't_listas')));
+        const snap = await getDocs(collection(db, 't_listas'));
         const listaDoc = snap.docs.find(d => d.id === listaTarget);
         const prevItems = listaDoc?.data()?.items || [];
-        // Merge: keep existing, override matching
         const merged = [...prevItems];
         for (const ni of items) {
           const idx = merged.findIndex(x => x.productoId === ni.productoId);
           if (idx >= 0) merged[idx] = ni; else merged.push(ni);
         }
         await setDoc(doc(db, 't_listas', listaTarget), { items: merged }, { merge: true });
-        toast(`✓ ${ok} precios actualizados en "${listas.find(l=>l.id===listaTarget)?.nombre}"`);
+        toast(`✓ ${ok} precios actualizados en "${listas.find(l => l.id === listaTarget)?.nombre}"`);
       } else {
-        // Create new list
         await addDoc(collection(db, 't_listas'), {
           nombre:      listaNombre.trim(),
           descripcion: '',
@@ -177,9 +178,7 @@ export default function AdminImport() {
       }
 
       setResultL({ ok, noMatch });
-      setPrecioRows([]);
-      setPrecioFile('');
-      setListaNombre('');
+      setPrecioRows([]); setPrecioFile(''); setListaNombre('');
       if (precioRef.current) precioRef.current.value = '';
     } catch (err) {
       toast('Error: ' + err.message, 'error');
@@ -189,7 +188,9 @@ export default function AdminImport() {
   return (
     <div style={{ maxWidth:900 }}>
       <h1 style={{ fontSize:'1.2rem', fontWeight:800, color:G, marginBottom:6 }}>Carga Masiva</h1>
-      <p style={{ fontSize:'.83rem', color:'#888', marginBottom:24 }}>Importá productos y listas de precio desde archivos CSV.</p>
+      <p style={{ fontSize:'.83rem', color:'#888', marginBottom:24 }}>
+        Importá productos y listas de precio desde archivos <strong>Excel (.xlsx)</strong>.
+      </p>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:24 }}>
 
@@ -199,40 +200,57 @@ export default function AdminImport() {
             📦 Importar Productos
           </div>
 
-          {/* Template */}
-          <div style={{ marginBottom:14, padding:'10px 14px', background:'#F5F5F0', borderRadius:6, fontSize:'.8rem', color:'#555' }}>
-            <div style={{ fontWeight:700, marginBottom:6 }}>Columnas requeridas (CSV):</div>
-            <code style={{ fontSize:'.72rem', display:'block', lineHeight:1.8 }}>
-              nombre, descripcion, categoria, unidad,<br/>
-              precioPublico, precioGeneral, emoji
-            </code>
-            <button onClick={() => downloadCSV(TEMPLATE_PRODUCTOS, 'template_productos.csv')}
-              style={{ marginTop:8, padding:'5px 12px', background:G, color:'#fff', border:'none', borderRadius:4, fontSize:'.72rem', cursor:'pointer', fontWeight:600 }}>
-              ⬇ Descargar plantilla CSV
+          <div style={{ marginBottom:14, padding:'12px 14px', background:'#F5F5F0', borderRadius:6, fontSize:'.8rem', color:'#555' }}>
+            <div style={{ fontWeight:700, marginBottom:8 }}>Columnas del Excel:</div>
+            <table style={{ width:'100%', fontSize:'.72rem', borderCollapse:'collapse' }}>
+              <tbody>
+                {[['Nombre *','Nombre del producto'],['Descripcion','Descripción corta'],['Categoria','Una de las categorías'],['Unidad','Unidad de venta'],['PrecioPublico *','Precio público (Q)'],['PrecioGeneral','Precio cliente general'],['Emoji','Emoji opcional 🥬']].map(([col, desc]) => (
+                  <tr key={col}>
+                    <td style={{ fontWeight:700, paddingRight:8, paddingBottom:4, whiteSpace:'nowrap', color:G }}>{col}</td>
+                    <td style={{ color:'#888', paddingBottom:4 }}>{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop:8, fontSize:'.7rem', color:'#888' }}>
+              Categorías: {CATEGORIAS.join(' · ')}<br/>
+              Unidades: {UNIDADES.join(' · ')}
+            </div>
+            <button onClick={() => downloadXLSX(TEMPLATE_PRODUCTOS, 'plantilla_productos.xlsx', 'Productos')}
+              style={{ marginTop:10, padding:'6px 14px', background:G, color:'#fff', border:'none', borderRadius:4, fontSize:'.75rem', cursor:'pointer', fontWeight:600 }}>
+              ⬇ Descargar plantilla Excel
             </button>
           </div>
 
-          <input type="file" accept=".csv,.txt" ref={prodRef} onChange={handleProdCSV}
+          <input type="file" accept=".xlsx,.xls,.csv" ref={prodRef} onChange={handleProdFile}
             style={{ fontSize:'.8rem', marginBottom:10, width:'100%' }} />
-          {prodFile && <div style={{ fontSize:'.78rem', color:'#555', marginBottom:8 }}>📄 {prodFile} — {prodRows.length} filas detectadas</div>}
+          {prodFile && (
+            <div style={{ fontSize:'.78rem', color:'#555', marginBottom:8 }}>
+              📄 {prodFile} — {prodRows.length} filas detectadas
+            </div>
+          )}
 
-          {/* Preview */}
           {prodRows.length > 0 && (
             <div style={{ background:'#F9F9F6', borderRadius:6, padding:10, marginBottom:12, maxHeight:160, overflowY:'auto', fontSize:'.75rem' }}>
-              <div style={{ fontWeight:700, color:'#888', marginBottom:6, textTransform:'uppercase', letterSpacing:'.05em' }}>Vista previa ({Math.min(prodRows.length,5)} de {prodRows.length})</div>
+              <div style={{ fontWeight:700, color:'#888', marginBottom:6, textTransform:'uppercase', letterSpacing:'.05em' }}>
+                Vista previa ({Math.min(prodRows.length,5)} de {prodRows.length})
+              </div>
               {prodRows.slice(0,5).map((r,i) => (
                 <div key={i} style={{ display:'flex', gap:8, marginBottom:4, padding:'4px 0', borderBottom:'1px solid #F0F0EC' }}>
-                  <span style={{ fontWeight:700, minWidth:0, flex:1 }}>{r.nombre || r.Nombre}</span>
-                  <span style={{ color:'#888' }}>{r.unidad || r.Unidad}</span>
-                  <span style={{ color:'#2D6645', fontWeight:600 }}>Q{r.preciopublico || r.precioPublico}</span>
+                  <span style={{ fontWeight:700, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {r.nombre}
+                  </span>
+                  <span style={{ color:'#888', whiteSpace:'nowrap' }}>{r.categoria}</span>
+                  <span style={{ color:'#888', whiteSpace:'nowrap' }}>{r.unidad}</span>
+                  <span style={{ color:'#2D6645', fontWeight:600, whiteSpace:'nowrap' }}>Q{r.preciopublico || r.precio_publico}</span>
                 </div>
               ))}
             </div>
           )}
 
           <button onClick={importarProductos} disabled={!prodRows.length || importingP}
-            style={{ width:'100%', padding:'10px', background: (!prodRows.length || importingP) ? '#ccc' : G, color:'#fff', border:'none', borderRadius:4, fontWeight:700, fontSize:'.83rem', cursor: (!prodRows.length||importingP) ? 'not-allowed' : 'pointer' }}>
-            {importingP ? 'Importando…' : `Importar ${prodRows.length} productos`}
+            style={{ width:'100%', padding:'10px', background: (!prodRows.length || importingP) ? '#ccc' : G, color:'#fff', border:'none', borderRadius:4, fontWeight:700, fontSize:'.83rem', cursor: (!prodRows.length || importingP) ? 'not-allowed' : 'pointer' }}>
+            {importingP ? 'Importando…' : `Importar ${prodRows.length} producto${prodRows.length !== 1 ? 's' : ''}`}
           </button>
 
           {resultP && (
@@ -245,57 +263,73 @@ export default function AdminImport() {
         {/* ── Listas de precio ── */}
         <div style={{ background:'#fff', borderRadius:8, boxShadow:'0 1px 4px rgba(0,0,0,.06)', padding:22 }}>
           <div style={{ fontWeight:700, color:G, marginBottom:14, fontSize:'.9rem', paddingBottom:10, borderBottom:'1px solid #F0F0EC' }}>
-            💲 Importar Lista de Precios
+            💲 Actualizar Lista de Precios
           </div>
 
-          <div style={{ marginBottom:14, padding:'10px 14px', background:'#F5F5F0', borderRadius:6, fontSize:'.8rem', color:'#555' }}>
-            <div style={{ fontWeight:700, marginBottom:6 }}>Columnas requeridas (CSV):</div>
-            <code style={{ fontSize:'.72rem', display:'block', lineHeight:1.8 }}>
-              producto, precio
-            </code>
-            <div style={{ marginTop:4, color:'#888', fontSize:'.72rem' }}>El nombre de producto debe coincidir exactamente con los productos cargados.</div>
-            <button onClick={() => downloadCSV(TEMPLATE_PRECIOS, 'template_precios.csv')}
-              style={{ marginTop:8, padding:'5px 12px', background:G, color:'#fff', border:'none', borderRadius:4, fontSize:'.72rem', cursor:'pointer', fontWeight:600 }}>
-              ⬇ Descargar plantilla CSV
+          <div style={{ marginBottom:14, padding:'12px 14px', background:'#F5F5F0', borderRadius:6, fontSize:'.8rem', color:'#555' }}>
+            <div style={{ fontWeight:700, marginBottom:6 }}>Columnas del Excel:</div>
+            <table style={{ width:'100%', fontSize:'.72rem', borderCollapse:'collapse' }}>
+              <tbody>
+                {[['Producto *','Nombre exacto del producto'],['Precio *','Precio negociado (Q)']].map(([col, desc]) => (
+                  <tr key={col}>
+                    <td style={{ fontWeight:700, paddingRight:8, paddingBottom:4, whiteSpace:'nowrap', color:G }}>{col}</td>
+                    <td style={{ color:'#888', paddingBottom:4 }}>{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ marginTop:6, color:'#888', fontSize:'.7rem' }}>
+              El nombre de producto debe coincidir exactamente.
+            </div>
+            <button
+              onClick={() => {
+                const rows = makeTemplatePreciosXLSX(productos);
+                if (!rows.length) { alert('Cargá productos primero'); return; }
+                downloadXLSX(rows, 'plantilla_precios.xlsx', 'Precios');
+              }}
+              style={{ marginTop:10, padding:'6px 14px', background:G, color:'#fff', border:'none', borderRadius:4, fontSize:'.75rem', cursor:'pointer', fontWeight:600 }}>
+              ⬇ Descargar Excel con tus productos
             </button>
           </div>
 
           {/* Target list */}
-          <label style={{ display:'flex', flexDirection:'column', gap:4, fontSize:'.72rem', fontWeight:600, textTransform:'uppercase', color:'#555', marginBottom:10 }}>
+          <label style={LS}>
             Destino
-            <select value={listaTarget} onChange={e => { setListaTarget(e.target.value); setListaNombre(''); }}
-              style={{ padding:'8px 10px', border:'1.5px solid #E0E0E0', borderRadius:4, fontSize:'.83rem', outline:'none', fontFamily:'inherit', width:'100%', marginTop:2 }}>
+            <select value={listaTarget} onChange={e => { setListaTarget(e.target.value); setListaNombre(''); }} style={IS}>
               <option value="">+ Crear nueva lista</option>
               {listas.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
             </select>
           </label>
 
           {!listaTarget && (
-            <label style={{ display:'flex', flexDirection:'column', gap:4, fontSize:'.72rem', fontWeight:600, textTransform:'uppercase', color:'#555', marginBottom:10 }}>
+            <label style={LS}>
               Nombre de la nueva lista
               <input value={listaNombre} onChange={e => setListaNombre(e.target.value)}
-                placeholder="Ej. Clientes Canal Moderno"
-                style={{ padding:'8px 10px', border:'1.5px solid #E0E0E0', borderRadius:4, fontSize:'.83rem', outline:'none', fontFamily:'inherit', width:'100%', marginTop:2 }} />
+                placeholder="Ej. Canal Moderno — Mar 2025"
+                style={IS} />
             </label>
           )}
 
-          <input type="file" accept=".csv,.txt" ref={precioRef} onChange={handlePrecioCSV}
+          <input type="file" accept=".xlsx,.xls,.csv" ref={precioRef} onChange={handlePrecioFile}
             style={{ fontSize:'.8rem', marginBottom:10, width:'100%' }} />
-          {precioFile && <div style={{ fontSize:'.78rem', color:'#555', marginBottom:8 }}>📄 {precioFile} — {precioRows.length} filas detectadas</div>}
+          {precioFile && (
+            <div style={{ fontSize:'.78rem', color:'#555', marginBottom:8 }}>
+              📄 {precioFile} — {precioRows.length} filas detectadas
+            </div>
+          )}
 
-          {/* Preview */}
           {precioRows.length > 0 && (
             <div style={{ background:'#F9F9F6', borderRadius:6, padding:10, marginBottom:12, maxHeight:160, overflowY:'auto', fontSize:'.75rem' }}>
               <div style={{ fontWeight:700, color:'#888', marginBottom:6, textTransform:'uppercase', letterSpacing:'.05em' }}>Vista previa</div>
               {precioRows.slice(0,5).map((r,i) => {
-                const nombre = r.producto || r.Producto || r.nombre || r.Nombre || '';
+                const nombre = (r.producto || r.nombre || '').trim();
                 const found  = !!prodNameMap[nombre.toLowerCase()];
                 return (
                   <div key={i} style={{ display:'flex', justifyContent:'space-between', marginBottom:4, padding:'4px 0', borderBottom:'1px solid #F0F0EC' }}>
                     <span style={{ fontWeight:600, color: found ? '#1A1A18' : '#C62828' }}>
                       {found ? '✓' : '✗'} {nombre}
                     </span>
-                    <span style={{ color:'#2D6645', fontWeight:700 }}>Q {r.precio || r.Precio}</span>
+                    <span style={{ color:'#2D6645', fontWeight:700 }}>Q {r.precio}</span>
                   </div>
                 );
               })}
@@ -303,17 +337,15 @@ export default function AdminImport() {
           )}
 
           <button onClick={importarPrecios} disabled={!precioRows.length || importingL}
-            style={{ width:'100%', padding:'10px', background: (!precioRows.length||importingL) ? '#ccc' : G, color:'#fff', border:'none', borderRadius:4, fontWeight:700, fontSize:'.83rem', cursor: (!precioRows.length||importingL) ? 'not-allowed' : 'pointer' }}>
-            {importingL ? 'Importando…' : `Importar ${precioRows.length} precios`}
+            style={{ width:'100%', padding:'10px', background: (!precioRows.length || importingL) ? '#ccc' : G, color:'#fff', border:'none', borderRadius:4, fontWeight:700, fontSize:'.83rem', cursor: (!precioRows.length || importingL) ? 'not-allowed' : 'pointer' }}>
+            {importingL ? 'Importando…' : `Importar ${precioRows.length} precio${precioRows.length !== 1 ? 's' : ''}`}
           </button>
 
           {resultL && (
             <div style={{ marginTop:10, padding:'10px 14px', background: resultL.noMatch.length ? '#FFF3E0' : '#E8F5E9', borderRadius:6, fontSize:'.8rem', color: resultL.noMatch.length ? '#E65100' : G }}>
               ✓ {resultL.ok} precios importados
               {resultL.noMatch.length > 0 && (
-                <div style={{ marginTop:4 }}>
-                  ⚠ Sin coincidencia: {resultL.noMatch.join(', ')}
-                </div>
+                <div style={{ marginTop:4 }}>⚠ Sin coincidencia: {resultL.noMatch.join(', ')}</div>
               )}
             </div>
           )}
@@ -324,7 +356,7 @@ export default function AdminImport() {
       {productos.length > 0 && (
         <div style={{ background:'#fff', borderRadius:8, boxShadow:'0 1px 4px rgba(0,0,0,.06)', padding:20, marginTop:24 }}>
           <div style={{ fontWeight:700, color:G, marginBottom:12, fontSize:'.83rem' }}>
-            Productos cargados ({productos.length}) — referencia para el CSV de precios
+            Productos cargados ({productos.length}) — referencia para el Excel de precios
           </div>
           <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
             {productos.map(p => (
