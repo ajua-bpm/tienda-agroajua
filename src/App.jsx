@@ -12,7 +12,11 @@ import Registro  from './pages/Registro.jsx';
 import CuentaLayout     from './pages/cuenta/CuentaLayout.jsx';
 import DashboardCliente from './pages/cuenta/DashboardCliente.jsx';
 import MisPedidos       from './pages/cuenta/MisPedidos.jsx';
-import PlaceholderPage  from './pages/PlaceholderPage.jsx';
+import DetallePedido    from './pages/cuenta/DetallePedido.jsx';
+import MiCalendario     from './pages/cuenta/MiCalendario.jsx';
+import MisFacturas      from './pages/cuenta/MisFacturas.jsx';
+import MisPagos         from './pages/cuenta/MisPagos.jsx';
+import MiPerfil         from './pages/cuenta/MiPerfil.jsx';
 
 // Admin
 import AdminLayout      from './admin/AdminLayout.jsx';
@@ -61,11 +65,11 @@ export default function App() {
       <Route path="/cuenta" element={<RequireAuth><CuentaLayout /></RequireAuth>}>
         <Route index           element={<DashboardCliente />} />
         <Route path="pedidos"    element={<MisPedidos />} />
-        <Route path="pedido/:id" element={<PlaceholderPage titulo="Detalle de pedido" />} />
-        <Route path="facturas"   element={<PlaceholderPage titulo="Mis Facturas" />} />
-        <Route path="pagos"      element={<PlaceholderPage titulo="Mis Pagos" />} />
-        <Route path="calendario" element={<PlaceholderPage titulo="Mi Calendario" />} />
-        <Route path="perfil"     element={<PlaceholderPage titulo="Mi Perfil" />} />
+        <Route path="pedido/:id" element={<DetallePedido />} />
+        <Route path="facturas"   element={<MisFacturas />} />
+        <Route path="pagos"      element={<MisPagos />} />
+        <Route path="calendario" element={<MiCalendario />} />
+        <Route path="perfil"     element={<MiPerfil />} />
       </Route>
 
       {/* Admin panel */}
