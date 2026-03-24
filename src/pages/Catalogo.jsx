@@ -66,13 +66,26 @@ export default function Catalogo() {
 
   const visible = useMemo(() => {
     let list = productos.filter(p => p.activo !== false);
+
+    // Cuando el cliente está logueado y tiene lista asignada:
+    // mostrar SOLO productos que están en su lista con precio definido
+    if (user && lista) {
+      list = list.filter(prod => {
+        const pres = presByProd[prod.id] || [];
+        if (pres.length > 0) return pres.some(p => priceMap[p.id] !== undefined);
+        return priceMap[prod.id] !== undefined; // legacy productoId
+      });
+    }
+
     if (filtro)   list = list.filter(p => p.categoria === filtro);
     if (busqueda) {
       const q = busqueda.toLowerCase();
       list = list.filter(p => p.nombre?.toLowerCase().includes(q) || p.descripcion?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q));
     }
-    return list;
-  }, [productos, filtro, busqueda]);
+
+    // Orden alfabético
+    return [...list].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
+  }, [productos, filtro, busqueda, user, lista, priceMap, presByProd]);
 
   const grupos = useMemo(() => {
     const map = {};
@@ -213,7 +226,12 @@ export default function Catalogo() {
 
                     // Products WITH presentations
                     if (pres.length > 0) {
-                      return pres.map((p, pi) => {
+                      // Si está logueado: mostrar solo presentaciones con precio en su lista
+                      const presVisible = (user && lista)
+                        ? pres.filter(p => priceMap[p.id] !== undefined)
+                        : pres;
+                      if (presVisible.length === 0) return null;
+                      return presVisible.map((p, pi) => {
                         const precio = getPrecio(p.id);
                         const qty    = getCartQty(p.id);
                         const active = qty > 0;
@@ -225,7 +243,7 @@ export default function Catalogo() {
                               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                                 {pi === 0 && (
                                   <div style={{ width:32, height:32, borderRadius:4, background:'#E8DCC8', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', flexShrink:0, overflow:'hidden' }}>
-                                    {prod.foto ? <img src={prod.foto} alt={prod.nombre} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : (prod.emoji || null)}
+                                    {prod.foto ? <img src={prod.foto} alt={prod.nombre} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
                                   </div>
                                 )}
                                 {pi > 0 && <div style={{ width:32, flexShrink:0 }} />}
@@ -282,7 +300,7 @@ export default function Catalogo() {
                         <td style={{ padding:'9px 8px 9px 28px' }}>
                           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                             <div style={{ width:34, height:34, borderRadius:4, background:'#E8DCC8', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.1rem', flexShrink:0, overflow:'hidden' }}>
-                              {prod.foto ? <img src={prod.foto} alt={prod.nombre} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : (prod.emoji||null)}
+                              {prod.foto ? <img src={prod.foto} alt={prod.nombre} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : null}
                             </div>
                             <div>
                               <div style={{ fontWeight:700, fontSize:'.87rem', color:active?G:'#333' }}>{prod.nombre}</div>
