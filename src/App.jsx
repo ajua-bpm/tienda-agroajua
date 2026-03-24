@@ -9,10 +9,14 @@ import Login     from './pages/Login.jsx';
 import Registro  from './pages/Registro.jsx';
 
 // Customer account
-import MiCuenta      from './pages/cuenta/MiCuenta.jsx';
-import ResumenCuenta from './pages/cuenta/ResumenCuenta.jsx';
-import MisOrdenes    from './pages/cuenta/MisOrdenes.jsx';
-import MiPerfil      from './pages/cuenta/MiPerfil.jsx';
+import CuentaLayout     from './pages/cuenta/CuentaLayout.jsx';
+import DashboardCliente from './pages/cuenta/DashboardCliente.jsx';
+
+const Pronto = ({ titulo }) => (
+  <div style={{ padding: '48px 32px', color: '#999', fontSize: '.95rem' }}>
+    🚧 <strong>{titulo}</strong> — próximamente
+  </div>
+);
 
 // Admin
 import AdminLayout      from './admin/AdminLayout.jsx';
@@ -58,11 +62,14 @@ export default function App() {
       <Route path="/registro" element={<PublicLayout><Registro /></PublicLayout>} />
 
       {/* Customer account (requires auth) */}
-      <Route path="/cuenta" element={<RequireAuth><PublicLayout><MiCuenta /></PublicLayout></RequireAuth>}>
-        <Route index           element={<ResumenCuenta />} />
-        <Route path="ordenes"  element={<MisOrdenes />} />
-        <Route path="pedidos"  element={<MisOrdenes />} />
-        <Route path="perfil"   element={<MiPerfil />} />
+      <Route path="/cuenta" element={<RequireAuth><CuentaLayout /></RequireAuth>}>
+        <Route index           element={<DashboardCliente />} />
+        <Route path="pedidos"    element={<Pronto titulo="Mis Pedidos" />} />
+        <Route path="pedido/:id" element={<Pronto titulo="Detalle de pedido" />} />
+        <Route path="facturas"   element={<Pronto titulo="Mis Facturas" />} />
+        <Route path="pagos"      element={<Pronto titulo="Mis Pagos" />} />
+        <Route path="calendario" element={<Pronto titulo="Mi Calendario" />} />
+        <Route path="perfil"     element={<Pronto titulo="Mi Perfil" />} />
       </Route>
 
       {/* Admin panel */}
