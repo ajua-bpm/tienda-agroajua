@@ -36,12 +36,14 @@ export default function Catalogo() {
     return unsub;
   }, [user, cliente?.listaId]);
 
-  // Build price map: presentacionId → precio (from lista) or productoId → precio (legacy)
+  // Build price map: presentacionId → precio (new) or productoId → precio (legacy items without presentacionId)
   const priceMap = useMemo(() => {
     const m = {};
     if (!lista?.items) return m;
     for (const item of lista.items) {
-      if (item.activo !== false) m[item.presentacionId] = item.precio;
+      if (item.activo === false) continue;
+      if (item.presentacionId) m[item.presentacionId] = item.precio;
+      else if (item.productoId) m[item.productoId] = item.precio;
     }
     return m;
   }, [lista]);
@@ -215,7 +217,6 @@ export default function Catalogo() {
                         const precio = getPrecio(p.id);
                         const qty    = getCartQty(p.id);
                         const active = qty > 0;
-                        const noItem = !precio && user; // no price in lista → "Consultar"
                         const displayPrecio = precio !== null ? precio : (!user ? prod.precioPublico : null);
 
                         return (
@@ -273,7 +274,7 @@ export default function Catalogo() {
                     }
 
                     // Legacy product (no presentations)
-                    const legacyPrecio = user ? (lista ? null : prod.precioGeneral) : prod.precioPublico;
+                    const legacyPrecio = user ? (priceMap[prod.id] ?? prod.precioGeneral ?? null) : prod.precioPublico;
                     const qty    = getCartQty(prod.id);
                     const active = qty > 0;
                     return (

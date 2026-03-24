@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { db, collection, query, where, onSnapshot, orderBy } from '../../firebase.js';
+import { db, collection, query, where, onSnapshot } from '../../firebase.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { fmtQ, fmtDate, estadoColor, today, cap } from '../../utils/format.js';
 
@@ -27,11 +27,11 @@ export default function MisOrdenes() {
     if (!user) return;
     const q = query(
       collection(db, 't_ordenes'),
-      where('clienteUid', '==', user.uid),
-      orderBy('creadoEn', 'desc')
+      where('clienteUid', '==', user.uid)
     );
     const unsub = onSnapshot(q, snap => {
       const docs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+      docs.sort((a, b) => (b.creadoEn?.seconds ?? 0) - (a.creadoEn?.seconds ?? 0));
       setOrdenes(docs);
       setLoading(false);
     }, () => setLoading(false));
@@ -127,7 +127,7 @@ export default function MisOrdenes() {
       {/* Orden cards */}
       <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
         {currentList.map(orden => {
-          const { bg, color } = estadoColor(orden.estado);
+          const { color } = estadoColor(orden.estado);
           const estIdx = PIPELINE.indexOf(orden.estado);
           const isOpen = detalle === orden.id;
           const vencida = orden.fechaPagoPromesada && orden.fechaPagoPromesada < today() && !['pagada','cancelada'].includes(orden.estado);
@@ -193,7 +193,7 @@ export default function MisOrdenes() {
                 <div style={{ borderTop:'1px solid #F0F0EC', padding:'14px 20px' }}>
                   {/* Dates block */}
                   <div style={{ display:'flex', gap:24, flexWrap:'wrap', marginBottom:14, fontSize:'.8rem' }}>
-                    {orden.fechaEntregaPromesada && <DateInfo label="Entrega prometida" value={fmtDate(orden.fechaEntregaPromesada)} />}
+                    {(orden.fechaEntregaPromesada||orden.fechaEntrega) && <DateInfo label="Entrega prometida" value={fmtDate(orden.fechaEntregaPromesada||orden.fechaEntrega)} />}
                     {orden.fechaEntregaReal      && <DateInfo label="Entrega real"       value={fmtDate(orden.fechaEntregaReal)} />}
                     {orden.fechaFactura          && <DateInfo label="Fecha factura"      value={fmtDate(orden.fechaFactura)} />}
                     {orden.numeroFEL             && <DateInfo label="No. FEL"            value={orden.numeroFEL} />}

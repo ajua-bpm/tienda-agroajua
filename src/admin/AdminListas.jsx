@@ -4,7 +4,7 @@ import {
   db, collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
   query, where, serverTimestamp,
 } from '../firebase.js';
-import { useCollection, useWrite } from '../hooks/useFirestore.js';
+import { useCollection } from '../hooks/useFirestore.js';
 import { useToast } from '../components/Toast.jsx';
 import { fmtDate, today } from '../utils/format.js';
 
@@ -78,11 +78,13 @@ export default function AdminListas() {
     return p ? `${p.descripcion} (${p.unidad||'—'})` : id;
   };
 
-  const enriqueItems = raw => (raw||[]).map(i => ({
-    ...i,
-    _prodNombre: prodNombre(presentaciones.find(p => p.id === i.presentacionId)?.productoId),
-    _presDesc:   presLabel(i.presentacionId),
-  }));
+  const enriqueItems = raw => (raw||[]).map(i => {
+    if (i.presentacionId) {
+      return { ...i, _prodNombre: prodNombre(presentaciones.find(p => p.id === i.presentacionId)?.productoId), _presDesc: presLabel(i.presentacionId) };
+    }
+    // legacy: productoId only
+    return { ...i, _prodNombre: prodNombre(i.productoId), _presDesc: '(sin presentación)' };
+  });
 
   // ── Open edit ──────────────────────────────────────────────────────────────
   const openEdit = lista => {
@@ -119,19 +121,25 @@ export default function AdminListas() {
 
   // ── Add item ───────────────────────────────────────────────────────────────
   const handleAddItem = () => {
-    if (!addPres)                               { toast('Seleccioná presentación', 'warn'); return; }
+    if (!addProd)                                   { toast('Seleccioná producto', 'warn'); return; }
+    if (presByProd.length > 0 && !addPres)          { toast('Seleccioná presentación', 'warn'); return; }
     if (!addPrecio || isNaN(parseFloat(addPrecio))) { toast('Ingresá precio', 'warn'); return; }
     setItems(prev => {
-      const idx = prev.findIndex(i => i.presentacionId === addPres);
-      const entry = {
-        presentacionId: addPres,
-        precio: parseFloat(addPrecio),
-        activo: true,
-        _prodNombre: prodNombre(presentaciones.find(p => p.id === addPres)?.productoId),
-        _presDesc:   presLabel(addPres),
-      };
-      if (idx >= 0) { const n=[...prev]; n[idx]=entry; return n; }
-      return [...prev, entry];
+      if (addPres) {
+        const idx = prev.findIndex(i => i.presentacionId === addPres);
+        const entry = { presentacionId: addPres, precio: parseFloat(addPrecio), activo: true,
+          _prodNombre: prodNombre(presentaciones.find(p => p.id === addPres)?.productoId),
+          _presDesc:   presLabel(addPres) };
+        if (idx >= 0) { const n=[...prev]; n[idx]=entry; return n; }
+        return [...prev, entry];
+      } else {
+        // product without presentations → use productoId directly
+        const idx = prev.findIndex(i => i.productoId === addProd && !i.presentacionId);
+        const entry = { productoId: addProd, precio: parseFloat(addPrecio), activo: true,
+          _prodNombre: prodNombre(addProd), _presDesc: '(sin presentación)' };
+        if (idx >= 0) { const n=[...prev]; n[idx]=entry; return n; }
+        return [...prev, entry];
+      }
     });
     setAddProd(''); setAddPres(''); setAddPrecio('');
   };
@@ -249,7 +257,12 @@ export default function AdminListas() {
         } else {
           presId = presentaciones.find(p => p.productoId === prodId)?.id || null;
         }
-        if (!presId) { noMatch.push(`${nombreRaw} (sin presentación)`); continue; }
+        if (!presId) {
+          // no presentations → add with productoId directly
+          newItems.push({ productoId: prodId, precio, activo: true });
+          ok++;
+          continue;
+        }
 
         newItems.push({ presentacionId: presId, precio, activo: true });
         ok++;
@@ -262,7 +275,9 @@ export default function AdminListas() {
       const prevItems = listaDoc?.data()?.items || [];
       const merged    = [...prevItems];
       for (const ni of newItems) {
-        const idx = merged.findIndex(x => x.presentacionId === ni.presentacionId);
+        const idx = ni.presentacionId
+          ? merged.findIndex(x => x.presentacionId === ni.presentacionId)
+          : merged.findIndex(x => x.productoId === ni.productoId && !x.presentacionId);
         if (idx >= 0) merged[idx] = ni; else merged.push(ni);
       }
       await updateDoc(doc(db, 't_listas', importTarget), { items: merged, actualizadaEn: serverTimestamp() });
@@ -351,7 +366,7 @@ export default function AdminListas() {
               </thead>
               <tbody>
                 {items.map((item, idx) => (
-                  <tr key={item.presentacionId || idx} style={{ background: idx%2 ? '#F9F9F6' : '#fff' }}>
+                  <tr key={item.presentacionId || item.productoId || idx} style={{ background: idx%2 ? '#F9F9F6' : '#fff' }}>
                     <td style={tdSt}><span style={{ fontWeight:600 }}>{item._prodNombre}</span></td>
                     <td style={{ ...tdSt, color:'#888' }}>{item._presDesc}</td>
                     <td style={tdSt}>
@@ -387,10 +402,13 @@ export default function AdminListas() {
               </label>
               <label style={{ ...LS, marginBottom:0, flex:'2 1 160px' }}>
                 Presentación
-                <select value={addPres} onChange={e => setAddPres(e.target.value)} style={IS} disabled={!addProd}>
-                  <option value="">— Seleccionar —</option>
-                  {presByProd.map(p => <option key={p.id} value={p.id}>{p.descripcion} ({p.unidad})</option>)}
-                </select>
+                {addProd && presByProd.length === 0
+                  ? <div style={{ marginTop:4, padding:'7px 10px', background:'#FFF9C4', borderRadius:4, fontSize:'.75rem', color:'#795548', border:'1.5px solid #F9A825' }}>Sin presentaciones — se agrega el producto directo</div>
+                  : <select value={addPres} onChange={e => setAddPres(e.target.value)} style={IS} disabled={!addProd}>
+                      <option value="">— Seleccionar —</option>
+                      {presByProd.map(p => <option key={p.id} value={p.id}>{p.descripcion} ({p.unidad})</option>)}
+                    </select>
+                }
               </label>
               <label style={{ ...LS, marginBottom:0, width:100, flexShrink:0 }}>
                 Precio (Q)
