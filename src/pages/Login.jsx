@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useToast } from '../components/Toast.jsx';
+import { db, doc, getDoc } from '../firebase.js';
 
 const G = '#1A3D28', ACC = '#4A9E6A';
 const LS = { display:'flex', flexDirection:'column', gap:4, fontSize:'.75rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#555', marginBottom:12 };
@@ -24,8 +25,11 @@ export default function Login() {
     if (!email || !pass) { toast('Ingresá email y contraseña', 'warn'); return; }
     setLoading(true);
     try {
-      await login(email, pass);
-      navigate(from, { replace: true });
+      const cred = await login(email, pass);
+      const snap  = await getDoc(doc(db, 't_clientes', cred.user.uid));
+      const rol   = snap.data()?.rol;
+      const destino = from !== '/' ? from : (rol === 'admin' ? '/admin' : '/cuenta');
+      navigate(destino, { replace: true });
     } catch (err) {
       const msg = err.code === 'auth/invalid-credential' ? 'Email o contraseña incorrectos' : 'Error al ingresar. Intenta de nuevo.';
       toast(msg, 'error');
