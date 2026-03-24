@@ -84,6 +84,16 @@ export default function AdminListas() {
     if (selected?.id === id) startNew();
   };
 
+  const duplicarLista = l => {
+    setSelected(null);
+    setNombre(`${l.nombre} (actualizado)`);
+    setDescripcion(l.descripcion || '');
+    setItems(l.items ? [...l.items] : []);
+    setBusquedaProd('');
+    setAddingCliente('');
+    toast(`Precios copiados de "${l.nombre}" — editá y guardá como nueva lista`);
+  };
+
   // ── Clients ───────────────────────────────────────────────────────────────
   const clientesAsignados    = useMemo(() => !selected ? [] : clientes.filter(c => c.listaId === selected.id), [clientes, selected]);
   const clientesDisponibles  = useMemo(() => !selected ? [] : clientes.filter(c => (c.listaId || 'general') !== selected.id && c.rol !== 'admin'), [clientes, selected]);
@@ -123,22 +133,26 @@ export default function AdminListas() {
       let ok = 0, skip = 0;
       const newItems = [...items];
       for (const row of rows) {
-        const pNombre = (row['Producto'] || row['producto'] || '').trim();
-        const precio  = parseFloat(row['PrecioEstaLista'] || row['Precio'] || row['precio'] || 0);
+        const pNombre  = (row['Producto'] || row['producto'] || '').toString().trim();
+        const rawPrice = row['PrecioEstaLista'] ?? row['Precio'] ?? row['precio'] ?? '';
         if (!pNombre) continue;
         const prodId = prodMap[pNombre.toLowerCase()];
         if (!prodId) { skip++; continue; }
+        // Empty cell → skip, keep existing price (no borrar)
+        if (rawPrice === '' || rawPrice === null || rawPrice === undefined) continue;
+        const precio = parseFloat(rawPrice) || 0;
         const idx = newItems.findIndex(i => i.productoId === prodId);
         if (precio > 0) {
           if (idx >= 0) newItems[idx] = { productoId:prodId, precio };
           else          newItems.push({ productoId:prodId, precio });
           ok++;
         } else if (idx >= 0) {
+          // Explicitly 0 → remove
           newItems.splice(idx, 1);
         }
       }
       setItems(newItems);
-      toast(`✓ ${ok} precios cargados${skip ? ` · ${skip} sin coincidencia` : ''}`);
+      toast(`✓ ${ok} precios actualizados${skip ? ` · ${skip} sin coincidencia` : ''}`);
     } catch(err) { toast('Error al leer Excel: ' + err.message, 'error'); }
     finally { if (xlsxRef.current) xlsxRef.current.value = ''; }
   };
@@ -171,12 +185,19 @@ export default function AdminListas() {
           {listas.map(l => {
             const nClientes = clientes.filter(c => c.listaId === l.id).length;
             return (
-              <div key={l.id} onClick={() => startEdit(l)}
-                style={{ padding:'11px 16px', borderBottom:'1px solid #F0F0EC', cursor:'pointer', background: selected?.id === l.id ? '#E8F5E9' : 'transparent' }}>
+              <div key={l.id}
+                style={{ padding:'10px 16px', borderBottom:'1px solid #F0F0EC', cursor:'pointer', background: selected?.id === l.id ? '#E8F5E9' : 'transparent' }}
+                onClick={() => startEdit(l)}>
                 <div style={{ fontWeight:700, fontSize:'.83rem', color:G }}>{l.nombre}</div>
                 <div style={{ fontSize:'.7rem', color:'#888', marginTop:2 }}>
                   {(l.items||[]).length} prod · <span style={{ color: nClientes > 0 ? '#2D6645' : '#ccc', fontWeight:600 }}>{nClientes} cliente{nClientes !== 1 ? 's' : ''}</span>
                 </div>
+                <button
+                  onClick={e => { e.stopPropagation(); duplicarLista(l); }}
+                  title="Duplicar para actualizar precios"
+                  style={{ marginTop:5, padding:'2px 8px', background:'#E3F2FD', color:'#1565C0', border:'none', borderRadius:3, fontSize:'.68rem', fontWeight:600, cursor:'pointer' }}>
+                  ⧉ Duplicar precios
+                </button>
               </div>
             );
           })}
