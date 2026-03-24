@@ -11,6 +11,7 @@ import Registro  from './pages/Registro.jsx';
 // Customer account
 import CuentaLayout     from './pages/cuenta/CuentaLayout.jsx';
 import DashboardCliente from './pages/cuenta/DashboardCliente.jsx';
+import MisPedidos       from './pages/cuenta/MisPedidos.jsx';
 import PlaceholderPage  from './pages/PlaceholderPage.jsx';
 
 // Admin
@@ -59,7 +60,7 @@ export default function App() {
       {/* Customer account (requires auth) */}
       <Route path="/cuenta" element={<RequireAuth><CuentaLayout /></RequireAuth>}>
         <Route index           element={<DashboardCliente />} />
-        <Route path="pedidos"    element={<PlaceholderPage titulo="Mis Pedidos" />} />
+        <Route path="pedidos"    element={<MisPedidos />} />
         <Route path="pedido/:id" element={<PlaceholderPage titulo="Detalle de pedido" />} />
         <Route path="facturas"   element={<PlaceholderPage titulo="Mis Facturas" />} />
         <Route path="pagos"      element={<PlaceholderPage titulo="Mis Pagos" />} />
