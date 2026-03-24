@@ -26,6 +26,7 @@ import AdminListas      from './admin/AdminListas.jsx';
 import AdminPromociones from './admin/AdminPromociones.jsx';
 import AdminConfig      from './admin/AdminConfig.jsx';
 import AdminImport      from './admin/AdminImport.jsx';
+import CalendarioAdmin  from './admin/CalendarioAdmin.jsx';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -50,7 +51,7 @@ export default function App() {
   return (
     <Routes>
       {/* Public store */}
-      <Route path="/" element={<PublicLayout><Catalogo /></PublicLayout>} />
+      <Route path="/"         element={<PublicLayout><Catalogo /></PublicLayout>} />
       <Route path="/checkout" element={<PublicLayout><Checkout /></PublicLayout>} />
       <Route path="/login"    element={<PublicLayout><Login /></PublicLayout>} />
       <Route path="/registro" element={<PublicLayout><Registro /></PublicLayout>} />
@@ -62,19 +63,20 @@ export default function App() {
         <Route path="perfil"  element={<MiPerfil />} />
       </Route>
 
-      {/* Admin panel (requires admin role — checked inside AdminLayout) */}
+      {/* Admin panel */}
       <Route path="/admin" element={<AdminLayout />}>
-        <Route index            element={<Dashboard />} />
-        <Route path="ordenes"   element={<AdminOrdenes />} />
-        <Route path="productos" element={<AdminProductos />} />
-        <Route path="clientes"  element={<AdminClientes />} />
-        <Route path="entregas"  element={<AdminEntregas />} />
-        <Route path="facturacion" element={<AdminFacturacion />} />
-        <Route path="pagos"     element={<AdminPagos />} />
-        <Route path="listas"    element={<AdminListas />} />
+        <Route index               element={<Dashboard />} />
+        <Route path="ordenes"      element={<AdminOrdenes />} />
+        <Route path="calendario"   element={<CalendarioAdmin />} />
+        <Route path="productos"    element={<AdminProductos />} />
+        <Route path="clientes"     element={<AdminClientes />} />
+        <Route path="entregas"     element={<AdminEntregas />} />
+        <Route path="facturacion"  element={<AdminFacturacion />} />
+        <Route path="pagos"        element={<AdminPagos />} />
+        <Route path="listas"       element={<AdminListas />} />
         <Route path="importar"     element={<AdminImport />} />
-        <Route path="promociones" element={<AdminPromociones />} />
-        <Route path="config"    element={<AdminConfig />} />
+        <Route path="promociones"  element={<AdminPromociones />} />
+        <Route path="config"       element={<AdminConfig />} />
       </Route>
 
       {/* Catch all */}

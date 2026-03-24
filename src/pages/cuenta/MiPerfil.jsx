@@ -1,243 +1,267 @@
 /**
- * MiPerfil — datos, dirección principal y sucursales del cliente.
+ * MiPerfil — 4 tabs: Mi información | Mis pedidos | Cuenta financiera | Calendario
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext.jsx';
-import { db, doc, updateDoc } from '../../firebase.js';
-import { useToast } from '../../components/Toast.jsx';
-import AddressForm from '../../components/AddressForm.jsx';
-import { TIPOS_NEGOCIO } from '../../utils/catalogos.js';
+import { db, collection, query, where, onSnapshot, orderBy } from '../../firebase.js';
+import { fmtQ, fmtDate, today } from '../../utils/format.js';
+import MisOrdenes from './MisOrdenes.jsx';
 
-const G  = '#1A3D28';
-const LS = { display:'flex', flexDirection:'column', gap:4, fontSize:'.75rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#555', marginBottom:12 };
-const IS = { padding:'10px 12px', border:'1.5px solid #E8DCC8', borderRadius:4, fontSize:'.88rem', outline:'none', fontFamily:'inherit', width:'100%', marginTop:2 };
-
-const BLANK_SUC = { id:'', nombre:'', contacto:'', telefono:'', direccion:{ pais:'Guatemala', departamento:'', municipio:'', zona:'', direccion:'', referencias:'' } };
+const G = '#1A3D28';
+const IS = { padding:'9px 12px', border:'1.5px solid #E0E0E0', borderRadius:5, fontSize:'.85rem', outline:'none', fontFamily:'inherit', width:'100%', marginTop:3, boxSizing:'border-box' };
+const LS = { display:'flex', flexDirection:'column', gap:3, fontSize:'.72rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', color:'#555', marginBottom:12 };
 
 export default function MiPerfil() {
-  const { cliente, user } = useAuth();
-  const toast = useToast();
-
-  const [form, setForm] = useState({
-    nombre:      '',
-    empresa:     '',
-    tipo:        'individual',
-    tipoNegocio: '',
-    telefono:    '',
-    nit:         '',
-    direccion:   { pais:'Guatemala', departamento:'', municipio:'', zona:'', direccion:'', referencias:'' },
-  });
-  const [saving, setSaving] = useState(false);
-
-  // Sucursales
-  const [sucursales, setSucursales] = useState([]);
-  const [editSuc, setEditSuc]       = useState(null);   // null | BLANK_SUC | existing
-  const [savingSuc, setSavingSuc]   = useState(false);
+  const { cliente, logout } = useAuth();
+  const [tab, setTab] = useState('info');
+  const [ordenes, setOrdenes] = useState([]);
 
   useEffect(() => {
     if (!cliente) return;
-    setForm({
-      nombre:      cliente.nombre      || '',
-      empresa:     cliente.empresa     || '',
-      tipo:        cliente.tipo        || 'individual',
-      tipoNegocio: cliente.tipoNegocio || '',
-      telefono:    cliente.telefono    || '',
-      nit:         cliente.nit         || '',
-      direccion:   cliente.direccion   || { pais:'Guatemala', departamento:'', municipio:'', zona:'', direccion:'', referencias:'' },
-    });
-    setSucursales(cliente.sucursales || []);
+    const q = query(
+      collection(db, 't_ordenes'),
+      where('clienteUid', '==', cliente.id),
+      orderBy('creadoEn', 'desc')
+    );
+    const unsub = onSnapshot(q, snap => {
+      setOrdenes(snap.docs.map(d => ({ id:d.id, ...d.data() })));
+    }, () => {});
+    return unsub;
   }, [cliente]);
 
-  const sf = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const saldoInfo = useMemo(() => {
+    const pendientes = ordenes.filter(o => ['entregada','facturada'].includes(o.estado));
+    const saldo      = pendientes.reduce((s,o) => s+(o.total||0), 0);
+    const saldoVenc  = pendientes.filter(o => o.fechaPagoPromesada && o.fechaPagoPromesada < today()).reduce((s,o) => s+(o.total||0), 0);
+    const proxima    = [...pendientes].sort((a,b) => (a.fechaPagoPromesada||'z').localeCompare(b.fechaPagoPromesada||'z'))[0];
+    return { saldo, saldoVenc, proxima, pendientes };
+  }, [ordenes]);
 
-  const handleSave = async () => {
-    if (!form.nombre) { toast('Nombre es requerido', 'warn'); return; }
-    setSaving(true);
-    try {
-      await updateDoc(doc(db, 't_clientes', user.uid), {
-        nombre:      form.nombre,
-        empresa:     form.empresa,
-        tipo:        form.tipo,
-        tipoNegocio: form.tipo === 'negocio' ? form.tipoNegocio : '',
-        telefono:    form.telefono,
-        nit:         form.nit,
-        direccion:   form.direccion,
-      });
-      toast('✓ Perfil actualizado');
-    } catch { toast('Error al guardar', 'error'); }
-    finally { setSaving(false); }
-  };
+  const calData = useMemo(() => {
+    const evs = {};
+    for (const o of ordenes) {
+      if (o.fechaEntregaPromesada && !['cancelada','pagada'].includes(o.estado)) {
+        if (!evs[o.fechaEntregaPromesada]) evs[o.fechaEntregaPromesada] = [];
+        evs[o.fechaEntregaPromesada].push({ tipo:'entrega', o });
+      }
+      if (o.fechaPagoPromesada && ['entregada','facturada'].includes(o.estado)) {
+        if (!evs[o.fechaPagoPromesada]) evs[o.fechaPagoPromesada] = [];
+        evs[o.fechaPagoPromesada].push({ tipo:'pago', o });
+      }
+    }
+    return evs;
+  }, [ordenes]);
 
-  // ── Sucursales ────────────────────────────────────────────────────────────
-  const startNewSuc = () => setEditSuc({ ...BLANK_SUC, id: `suc_${Date.now()}` });
-  const cancelSuc   = () => setEditSuc(null);
+  const sucursales = cliente?.sucursales || [];
 
-  const ss = (k, v) => setEditSuc(e => ({ ...e, [k]: v }));
-
-  const saveSuc = async () => {
-    if (!editSuc.nombre) { toast('Nombre de sucursal requerido', 'warn'); return; }
-    setSavingSuc(true);
-    try {
-      const updated = sucursales.some(s => s.id === editSuc.id)
-        ? sucursales.map(s => s.id === editSuc.id ? editSuc : s)
-        : [...sucursales, editSuc];
-      await updateDoc(doc(db, 't_clientes', user.uid), { sucursales: updated });
-      setSucursales(updated);
-      setEditSuc(null);
-      toast('✓ Sucursal guardada');
-    } catch { toast('Error al guardar sucursal', 'error'); }
-    finally { setSavingSuc(false); }
-  };
-
-  const deleteSuc = async (id) => {
-    if (!window.confirm('¿Eliminar esta sucursal?')) return;
-    const updated = sucursales.filter(s => s.id !== id);
-    await updateDoc(doc(db, 't_clientes', user.uid), { sucursales: updated });
-    setSucursales(updated);
-    toast('Sucursal eliminada');
-  };
-
-  const esNegocio = form.tipo === 'negocio';
+  const TABS = [
+    ['info',    'Mi información'],
+    ['pedidos', 'Mis pedidos'],
+    ['cuenta',  'Mi cuenta'],
+    ['cal',     'Calendario'],
+  ];
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <h2 style={{ fontSize: '1rem', fontWeight: 700, color: G, marginBottom: 20 }}>Mi perfil</h2>
+    <div>
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:0, borderBottom:'2px solid #F0F0EC', marginBottom:24 }}>
+        {TABS.map(([t,l]) => (
+          <button key={t} onClick={() => setTab(t)}
+            style={{
+              padding:'10px 20px', border:'none', cursor:'pointer', fontFamily:'inherit',
+              fontSize:'.8rem', fontWeight:700,
+              background: tab===t?'#fff':'transparent',
+              color: tab===t?G:'#888',
+              borderBottom: tab===t?`2px solid ${G}`:'2px solid transparent',
+              marginBottom:-2,
+            }}>{l}
+          </button>
+        ))}
+      </div>
 
-      {/* ── Tipo de cuenta ── */}
-      <Section title="Tipo de cuenta">
-        <div style={{ display:'flex', gap:10, marginBottom:14 }}>
-          {[['individual','👤 Individual'],['negocio','🏢 Negocio']].map(([val, label]) => (
-            <button key={val} type="button" onClick={() => sf('tipo', val)}
-              style={{ flex:1, padding:'9px 8px', border:`2px solid ${form.tipo === val ? G : '#E8DCC8'}`, borderRadius:6, background: form.tipo === val ? '#F0F7F2' : '#fff', color: form.tipo === val ? G : '#888', fontWeight: form.tipo === val ? 700 : 500, fontSize:'.82rem', cursor:'pointer' }}>
-              {label}
-            </button>
-          ))}
-        </div>
+      {/* ── TAB INFO ── */}
+      {tab === 'info' && (
+        <div style={{ maxWidth:600 }}>
+          <Section title="Mi empresa">
+            <Row label="Nombre"   value={cliente?.nombre   || '—'} />
+            <Row label="Empresa"  value={cliente?.empresa  || '—'} />
+            <Row label="NIT"      value={cliente?.nit      || 'CF'} />
+            <Row label="Teléfono" value={cliente?.telefono || '—'} />
+            <Row label="Email"    value={cliente?.email    || '—'} />
+            <Row label="Tipo"     value={cliente?.tipo==='negocio'?'Empresa / Negocio':'Persona natural'} />
+            {cliente?.tipoNegocio && <Row label="Tipo negocio" value={cliente.tipoNegocio} />}
+          </Section>
 
-        {esNegocio && (
-          <label style={LS}>
-            Tipo de negocio
-            <select value={form.tipoNegocio} onChange={e => sf('tipoNegocio', e.target.value)} style={IS}>
-              <option value="">— Seleccionar —</option>
-              {TIPOS_NEGOCIO.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
-        )}
-      </Section>
-
-      {/* ── Datos básicos ── */}
-      <Section title="Datos básicos">
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 12px' }}>
-          <label style={{ ...LS, gridColumn:'span 2' }}>
-            Nombre / Contacto *
-            <input value={form.nombre} onChange={e => sf('nombre', e.target.value)} style={IS} />
-          </label>
-          {esNegocio && (
-            <label style={{ ...LS, gridColumn:'span 2' }}>
-              Nombre del negocio
-              <input value={form.empresa} onChange={e => sf('empresa', e.target.value)} style={IS} />
-            </label>
+          {cliente?.diasCredito > 0 && (
+            <Section title="Condiciones comerciales">
+              <Row label="Días de crédito" value={`${cliente.diasCredito} días desde entrega`} />
+              <Row label="Lista de precios" value={cliente?.listaId==='general'?'Lista general':'Lista especial asignada'} />
+            </Section>
           )}
-          <label style={LS}>
-            Teléfono / WhatsApp
-            <input value={form.telefono} onChange={e => sf('telefono', e.target.value)} placeholder="+502 ..." style={IS} />
-          </label>
-          <label style={LS}>
-            NIT
-            <input value={form.nit} onChange={e => sf('nit', e.target.value)} placeholder="CF" style={IS} />
-          </label>
+
+          <Section title={`Puntos de entrega (${sucursales.length})`}>
+            {!sucursales.length && <div style={{ color:'#aaa', fontSize:'.85rem' }}>Sin sucursales registradas</div>}
+            {sucursales.map(s => (
+              <div key={s.id} style={{ background:'#F5F5F0', borderRadius:6, padding:'10px 14px', marginBottom:8 }}>
+                <div style={{ fontWeight:700, color:G, fontSize:'.85rem' }}>{s.nombre}</div>
+                {s.contacto && <div style={{ fontSize:'.8rem', color:'#555', marginTop:3 }}>{s.contacto}{s.telefono?` · ${s.telefono}`:''}</div>}
+                {s.direccion && <div style={{ fontSize:'.78rem', color:'#888', marginTop:2 }}>{s.direccion}</div>}
+                {s.activa===false && <span style={{ fontSize:'.68rem', color:'#C62828', fontWeight:700 }}>Inactiva</span>}
+              </div>
+            ))}
+            <div style={{ marginTop:12, padding:'10px 14px', background:'#E8F5E9', borderRadius:6, fontSize:'.8rem', color:'#1B5E20' }}>
+              Para modificar tu información o sucursales, contactá a tu ejecutivo AJÚA.<br />
+              <strong>agroajua@gmail.com</strong>
+            </div>
+          </Section>
+
+          <button onClick={logout}
+            style={{ marginTop:8, padding:'9px 20px', background:'transparent', color:'#C62828', border:'1.5px solid #C62828', borderRadius:5, fontWeight:700, fontSize:'.85rem', cursor:'pointer' }}>
+            Cerrar sesión
+          </button>
         </div>
-      </Section>
+      )}
 
-      {/* ── Dirección principal ── */}
-      <Section title="Dirección de entrega principal">
-        <div style={{ fontSize:'.78rem', color:'#6B8070', marginBottom:12 }}>
-          Esta dirección se usará por defecto en tus pedidos.
-        </div>
-        <AddressForm value={form.direccion} onChange={v => sf('direccion', v)} />
-      </Section>
+      {/* ── TAB PEDIDOS ── */}
+      {tab === 'pedidos' && <MisOrdenes />}
 
-      <button onClick={handleSave} disabled={saving}
-        style={{ padding:'11px 28px', background: saving ? '#ccc' : G, color:'#F5F0E4', border:'none', borderRadius:4, fontWeight:700, fontSize:'.88rem', cursor: saving ? 'not-allowed' : 'pointer', marginBottom:28 }}>
-        {saving ? 'Guardando…' : '✓ Guardar perfil'}
-      </button>
-
-      {/* ── Sucursales (only for businesses) ── */}
-      {esNegocio && (
-        <Section title={`Sucursales (${sucursales.length})`}>
-          <div style={{ fontSize:'.78rem', color:'#6B8070', marginBottom:12 }}>
-            Registrá cada punto de entrega de tu negocio. Al hacer un pedido podrás elegir a qué sucursal enviarlo.
+      {/* ── TAB CUENTA FINANCIERA ── */}
+      {tab === 'cuenta' && (
+        <div style={{ maxWidth:600 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+            <StatCard label="Saldo pendiente" value={fmtQ(saldoInfo.saldo)} color={saldoInfo.saldo>0?'#E65100':G} />
+            <StatCard label="Saldo vencido"   value={fmtQ(saldoInfo.saldoVenc)} color={saldoInfo.saldoVenc>0?'#C62828':G} />
+            <StatCard label="Total pedidos"   value={ordenes.length} />
+            <StatCard label="Crédito"         value={cliente?.diasCredito===0?'Contado':`${cliente?.diasCredito||0} días`} />
           </div>
 
-          {sucursales.map(suc => (
-            <div key={suc.id} style={{ background:'#F9F9F6', borderRadius:6, padding:'12px 14px', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
-              <div>
-                <div style={{ fontWeight:700, color:G, fontSize:'.88rem' }}>{suc.nombre}</div>
-                {suc.contacto && <div style={{ fontSize:'.78rem', color:'#555', marginTop:2 }}>Contacto: {suc.contacto}</div>}
-                {suc.telefono && <div style={{ fontSize:'.78rem', color:'#555' }}>Tel: {suc.telefono}</div>}
-                {suc.direccion?.direccion && (
-                  <div style={{ fontSize:'.75rem', color:'#888', marginTop:4 }}>
-                    {[suc.direccion.direccion, suc.direccion.zona, suc.direccion.municipio, suc.direccion.departamento].filter(Boolean).join(', ')}
-                  </div>
-                )}
-              </div>
-              <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                <button onClick={() => setEditSuc(suc)} style={{ padding:'4px 10px', background:'#E3F2FD', color:'#1565C0', border:'none', borderRadius:4, fontSize:'.72rem', fontWeight:600, cursor:'pointer' }}>Editar</button>
-                <button onClick={() => deleteSuc(suc.id)} style={{ padding:'4px 10px', background:'#FFEBEE', color:'#C62828', border:'none', borderRadius:4, fontSize:'.72rem', fontWeight:600, cursor:'pointer' }}>✕</button>
+          {saldoInfo.proxima && (
+            <div style={{ background:'#FFF3E0', border:'1px solid #FFB74D', borderRadius:8, padding:'14px 18px', marginBottom:20 }}>
+              <div style={{ fontWeight:700, color:'#E65100', marginBottom:4 }}>Próximo pago</div>
+              <div style={{ fontSize:'.9rem', fontWeight:700, color:'#1A1A18' }}>{fmtQ(saldoInfo.proxima.total)}</div>
+              <div style={{ fontSize:'.8rem', color:'#888', marginTop:3 }}>
+                {saldoInfo.proxima.correlativo} · vence {fmtDate(saldoInfo.proxima.fechaPagoPromesada)}
               </div>
             </div>
-          ))}
-
-          {editSuc ? (
-            <div style={{ border:'1.5px solid #D0E8D0', borderRadius:8, padding:16, marginTop:12 }}>
-              <div style={{ fontWeight:700, color:G, fontSize:'.83rem', marginBottom:12 }}>
-                {sucursales.some(s => s.id === editSuc.id) ? 'Editar sucursal' : 'Nueva sucursal'}
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 12px' }}>
-                <label style={{ ...LS, gridColumn:'span 2' }}>
-                  Nombre de la sucursal *
-                  <input value={editSuc.nombre} onChange={e => ss('nombre', e.target.value)} placeholder="Sucursal Centro, Zona 10..." style={IS} />
-                </label>
-                <label style={LS}>
-                  Persona de contacto
-                  <input value={editSuc.contacto} onChange={e => ss('contacto', e.target.value)} placeholder="Nombre del encargado" style={IS} />
-                </label>
-                <label style={LS}>
-                  Teléfono
-                  <input value={editSuc.telefono} onChange={e => ss('telefono', e.target.value)} placeholder="+502 ..." style={IS} />
-                </label>
-              </div>
-              <div style={{ fontSize:'.72rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em', color:'#555', margin:'12px 0 8px' }}>Dirección de la sucursal</div>
-              <AddressForm value={editSuc.direccion} onChange={v => ss('direccion', v)} />
-              <div style={{ display:'flex', gap:8, marginTop:14 }}>
-                <button onClick={saveSuc} disabled={savingSuc}
-                  style={{ padding:'9px 20px', background: savingSuc ? '#ccc' : G, color:'#fff', border:'none', borderRadius:4, fontWeight:700, fontSize:'.83rem', cursor: savingSuc ? 'not-allowed' : 'pointer' }}>
-                  {savingSuc ? 'Guardando…' : 'Guardar sucursal'}
-                </button>
-                <button onClick={cancelSuc} style={{ padding:'9px 14px', background:'#F5F5F5', border:'1px solid #E0E0E0', borderRadius:4, fontSize:'.83rem', cursor:'pointer' }}>
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={startNewSuc}
-              style={{ width:'100%', padding:'9px', border:'1.5px dashed #B0CCB8', borderRadius:6, background:'transparent', color:G, fontWeight:700, fontSize:'.83rem', cursor:'pointer', marginTop:4 }}>
-              + Agregar sucursal
-            </button>
           )}
-        </Section>
+
+          <Section title="Saldo pendiente de pago">
+            {!saldoInfo.pendientes.length && <div style={{ color:'#aaa', fontSize:'.85rem' }}>Sin saldo pendiente ✓</div>}
+            {saldoInfo.pendientes.map(o => {
+              const venc = o.fechaPagoPromesada && o.fechaPagoPromesada < today();
+              return (
+                <div key={o.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid #F5F5F0', fontSize:'.85rem' }}>
+                  <div>
+                    <span style={{ fontWeight:700, color:G }}>{o.correlativo}</span>
+                    {o.fechaPagoPromesada && <span style={{ color:venc?'#C62828':'#888', marginLeft:10 }}>vence {fmtDate(o.fechaPagoPromesada)}{venc?' ⚠':''}</span>}
+                  </div>
+                  <span style={{ fontWeight:700, color:venc?'#C62828':G }}>{fmtQ(o.total)}</span>
+                </div>
+              );
+            })}
+          </Section>
+
+          <Section title="Facturas pagadas">
+            {!ordenes.filter(o => o.estado==='pagada').length && <div style={{ color:'#aaa', fontSize:'.85rem' }}>Sin pagos registrados</div>}
+            {ordenes.filter(o => o.estado==='pagada').slice(0,10).map(o => (
+              <div key={o.id} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid #F5F5F0', fontSize:'.83rem' }}>
+                <div>
+                  <span style={{ fontWeight:700, color:G }}>{o.correlativo}</span>
+                  {o.numeroFEL && <span style={{ color:'#888', marginLeft:8, fontSize:'.75rem' }}>FEL: {o.numeroFEL}</span>}
+                  {o.fechaPagoReal && <span style={{ color:'#888', marginLeft:8 }}>{fmtDate(o.fechaPagoReal)}</span>}
+                </div>
+                <span style={{ fontWeight:700, color:'#1B5E20' }}>{fmtQ(o.total)}</span>
+              </div>
+            ))}
+          </Section>
+
+          <div style={{ padding:'12px 16px', background:'#E8F5E9', borderRadius:6, fontSize:'.8rem', color:'#1B5E20' }}>
+            Para consultas de facturación: <strong>agroajua@gmail.com</strong>
+          </div>
+        </div>
       )}
+
+      {/* ── TAB CALENDARIO ── */}
+      {tab === 'cal' && <CalendarioCliente events={calData} />}
     </div>
   );
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
 function Section({ title, children }) {
   return (
-    <div style={{ background:'#FDFCF8', border:'1px solid #E8DCC8', borderRadius:8, padding:18, marginBottom:16 }}>
-      <div style={{ fontWeight:700, fontSize:'.75rem', textTransform:'uppercase', letterSpacing:'.07em', color:G, marginBottom:14, paddingBottom:10, borderBottom:'1px solid #F0EBE0' }}>
-        {title}
-      </div>
+    <div style={{ marginBottom:24 }}>
+      <div style={{ fontSize:'.72rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'.08em', color:'#888', marginBottom:10 }}>{title}</div>
       {children}
+    </div>
+  );
+}
+
+function Row({ label, value }) {
+  return (
+    <div style={{ display:'flex', gap:12, padding:'8px 0', borderBottom:'1px solid #F5F5F0', fontSize:'.85rem' }}>
+      <span style={{ fontWeight:600, color:'#888', minWidth:130, flexShrink:0 }}>{label}</span>
+      <span style={{ color:'#1A1A18' }}>{value}</span>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div style={{ background:'#F5F5F0', borderRadius:8, padding:'14px 16px' }}>
+      <div style={{ fontSize:'.68rem', fontWeight:700, textTransform:'uppercase', color:'#888', letterSpacing:'.06em', marginBottom:6 }}>{label}</div>
+      <div style={{ fontWeight:800, fontSize:'1.1rem', color:color||G }}>{value}</div>
+    </div>
+  );
+}
+
+function CalendarioCliente({ events }) {
+  const [mes, setMes] = useState(() => { const d=new Date(); return { year:d.getFullYear(), month:d.getMonth() }; });
+  const diasEnMes = new Date(mes.year, mes.month+1, 0).getDate();
+  const primerDia = new Date(mes.year, mes.month, 1).getDay();
+  const todayStr  = new Date().toISOString().slice(0,10);
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const prevMes = () => setMes(m => m.month===0?{year:m.year-1,month:11}:{year:m.year,month:m.month-1});
+  const nextMes = () => setMes(m => m.month===11?{year:m.year+1,month:0}:{year:m.year,month:m.month+1});
+  const cells = [];
+  for (let i=0; i<primerDia; i++) cells.push(null);
+  for (let d=1; d<=diasEnMes; d++) {
+    const ds = `${mes.year}-${String(mes.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    cells.push({ d, ds, evs: events[ds]||[] });
+  }
+  return (
+    <div style={{ maxWidth:600 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <button onClick={prevMes} style={{ background:'none', border:'none', cursor:'pointer', fontSize:'1.3rem', color:'#888' }}>‹</button>
+        <span style={{ fontWeight:800, fontSize:'1rem', color:G }}>{MESES[mes.month]} {mes.year}</span>
+        <button onClick={nextMes} style={{ background:'none', border:'none', cursor:'pointer', fontSize:'1.3rem', color:'#888' }}>›</button>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:3, marginBottom:6 }}>
+        {['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map(d => (
+          <div key={d} style={{ textAlign:'center', fontSize:'.68rem', fontWeight:700, color:'#888' }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:3 }}>
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={`e${i}`} />;
+          const isToday = cell.ds===todayStr;
+          const hasEnt  = cell.evs.some(e => e.tipo==='entrega');
+          const hasPago = cell.evs.some(e => e.tipo==='pago');
+          const venc    = cell.evs.some(e => e.tipo==='pago' && cell.ds < todayStr);
+          return (
+            <div key={cell.ds} style={{ minHeight:44, padding:'4px 5px', borderRadius:6, background:isToday?'#E8F5E9':'#F9F9F6', border:isToday?`2px solid ${G}`:'1px solid #EFEFEF' }}>
+              <div style={{ fontSize:'.75rem', fontWeight:isToday?900:400, color:isToday?G:'#555', textAlign:'center' }}>{cell.d}</div>
+              {hasEnt  && <div style={{ fontSize:'.58rem', background:'#BBDEFB', borderRadius:3, padding:'1px 3px', marginTop:2, color:'#0D47A1', fontWeight:700, textAlign:'center' }}>ENT</div>}
+              {hasPago && <div style={{ fontSize:'.58rem', background:venc?'#FFCDD2':'#FFE0B2', borderRadius:3, padding:'1px 3px', marginTop:2, color:venc?'#C62828':'#E65100', fontWeight:700, textAlign:'center' }}>PAGO{venc?' ⚠':''}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display:'flex', gap:14, marginTop:14, fontSize:'.75rem', flexWrap:'wrap' }}>
+        <span><span style={{ background:'#BBDEFB', padding:'1px 6px', borderRadius:3, color:'#0D47A1', fontWeight:700 }}>ENT</span> Entrega programada</span>
+        <span><span style={{ background:'#FFE0B2', padding:'1px 6px', borderRadius:3, color:'#E65100', fontWeight:700 }}>PAGO</span> Pago pendiente</span>
+        <span><span style={{ background:'#FFCDD2', padding:'1px 6px', borderRadius:3, color:'#C62828', fontWeight:700 }}>PAGO ⚠</span> Vencido</span>
+      </div>
     </div>
   );
 }

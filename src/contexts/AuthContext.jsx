@@ -3,7 +3,7 @@ import {
   auth, db,
   onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, sendPasswordResetEmail,
-  doc, getDoc, setDoc, serverTimestamp,
+  doc, getDoc, setDoc, onSnapshot, serverTimestamp,
 } from '../firebase.js';
 
 const Ctx = createContext(null);
@@ -14,14 +14,17 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async fbUser => {
+    let unsubCliente = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async fbUser => {
+      // Limpiar listener anterior si cambia el usuario
+      if (unsubCliente) { unsubCliente(); unsubCliente = null; }
+
       setUser(fbUser);
       if (fbUser) {
+        // Verificar si existe el perfil, crearlo si no
         const snap = await getDoc(doc(db, 't_clientes', fbUser.uid));
-        if (snap.exists()) {
-          setCliente({ id: snap.id, ...snap.data() });
-        } else {
-          // First login — create basic profile
+        if (!snap.exists()) {
           const profile = {
             uid:        fbUser.uid,
             email:      fbUser.email,
@@ -32,14 +35,23 @@ export function AuthProvider({ children }) {
             creadoEn:   serverTimestamp(),
           };
           await setDoc(doc(db, 't_clientes', fbUser.uid), profile);
-          setCliente({ id: fbUser.uid, ...profile });
         }
+
+        // Listener en tiempo real — detecta cambios de listaId, tier, etc.
+        unsubCliente = onSnapshot(doc(db, 't_clientes', fbUser.uid), s => {
+          setCliente(s.exists() ? { id: s.id, ...s.data() } : null);
+          setLoading(false);
+        });
       } else {
         setCliente(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsub;
+
+    return () => {
+      unsubAuth();
+      if (unsubCliente) unsubCliente();
+    };
   }, []);
 
   const login = (email, pass) => signInWithEmailAndPassword(auth, email, pass);

@@ -1,58 +1,85 @@
-import { useState } from 'react';
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext.jsx';
-import { db, doc, updateDoc } from '../../firebase.js';
-import { useToast } from '../../components/Toast.jsx';
-import { TIER_LABEL, TIER_COLOR } from '../../utils/format.js';
 
-const G = '#1A3D28';
-const navLinkStyle = active => ({
-  display: 'block', padding: '9px 14px', borderRadius: 6,
-  fontWeight: 600, fontSize: '.83rem', textDecoration: 'none',
-  background: active ? G : 'transparent',
-  color: active ? '#F5F0E4' : '#555',
-  transition: 'all .15s',
-});
+const G    = '#1A3D28';
+const ACC  = '#4A9E6A';
+const LOGO = '🌿'; // puede reemplazarse por <img> cuando exista logo
 
 export default function MiCuenta() {
-  const { cliente, user } = useAuth();
-  const toast = useToast();
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ nombre: cliente?.nombre || '', telefono: cliente?.telefono || '', empresa: cliente?.empresa || '', nit: cliente?.nit || '' });
-  const [saving, setSaving] = useState(false);
+  const { cliente } = useAuth();
+  const navigate  = useNavigate();
+  const location  = useLocation();
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await updateDoc(doc(db, 't_clientes', user.uid), form);
-      toast('✓ Perfil actualizado');
-      setEditing(false);
-    } catch { toast('Error al guardar', 'error'); }
-    finally { setSaving(false); }
-  };
-
-  const tier = cliente?.tier || 'general';
-  const { bg, color } = TIER_COLOR[tier] || {};
+  const nombre    = cliente?.nombre  || 'Cliente';
+  const empresa   = cliente?.empresa || '';
+  const email     = cliente?.email   || '';
+  const isOrdenes = location.pathname.includes('ordenes') || location.pathname === '/cuenta';
+  const isPerfil  = location.pathname.includes('perfil');
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 24px', display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, alignItems: 'start' }}>
-      {/* Sidebar */}
-      <div>
-        <div style={{ background: '#FDFCF8', border: '1px solid #E8DCC8', borderRadius: 8, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontWeight: 700, fontSize: '.9rem', color: G, marginBottom: 2 }}>{cliente?.nombre || 'Cliente'}</div>
-          <div style={{ fontSize: '.75rem', color: '#6B8070', marginBottom: 8 }}>{user?.email}</div>
-          <span style={{ padding: '2px 10px', borderRadius: 100, fontSize: '.7rem', fontWeight: 700, background: bg, color }}>{TIER_LABEL[tier]}</span>
+    <div style={{ maxWidth: 780, margin: '0 auto', padding: '0 0 60px' }}>
+
+      {/* ══ Header de cuenta ════════════════════════════════════════════ */}
+      <div style={{ background: G, color: '#F5F0E4' }}>
+        {/* Banda superior — marca */}
+        <div style={{
+          borderBottom: '1px solid rgba(255,255,255,.1)',
+          padding: '10px 24px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          fontSize: '.72rem', letterSpacing: '.12em', textTransform: 'uppercase',
+          color: 'rgba(245,240,228,.5)', fontWeight: 600,
+        }}>
+          {LOGO} AGROINDUSTRIA AJÚA — Portal de Clientes
         </div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <NavLink to="/cuenta/ordenes" style={({ isActive }) => navLinkStyle(isActive)}>📋 Mis pedidos</NavLink>
-          <NavLink to="/cuenta/perfil" style={({ isActive }) => navLinkStyle(isActive)}>👤 Mi perfil</NavLink>
-        </nav>
+
+        {/* Info cliente + CTA */}
+        <div style={{ padding: '20px 24px 24px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.2 }}>
+              {nombre}
+            </div>
+            {empresa && (
+              <div style={{ fontSize: '.88rem', color: 'rgba(245,240,228,.65)', marginTop: 3 }}>{empresa}</div>
+            )}
+            <div style={{ fontSize: '.75rem', color: 'rgba(245,240,228,.4)', marginTop: 2 }}>{email}</div>
+          </div>
+
+          <button
+            onClick={() => navigate('/')}
+            style={{
+              padding: '12px 24px', background: ACC, color: '#fff', border: 'none',
+              borderRadius: 6, fontWeight: 700, fontSize: '.88rem', cursor: 'pointer',
+              letterSpacing: '.02em', whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            + Nuevo Pedido
+          </button>
+        </div>
+
+        {/* Tabs de navegación */}
+        <div style={{ display: 'flex', borderTop: '1px solid rgba(255,255,255,.1)' }}>
+          {[
+            { to: '/cuenta/ordenes', label: 'Mis Pedidos',  active: isOrdenes },
+            { to: '/cuenta/perfil',  label: 'Mis Datos',    active: isPerfil  },
+          ].map(tab => (
+            <NavLink key={tab.to} to={tab.to} style={{ textDecoration: 'none' }}>
+              <div style={{
+                padding: '13px 24px',
+                fontSize: '.82rem', fontWeight: 700, letterSpacing: '.02em',
+                color: tab.active ? '#fff' : 'rgba(245,240,228,.45)',
+                borderBottom: tab.active ? '3px solid #8DC26F' : '3px solid transparent',
+                transition: 'all .15s', cursor: 'pointer',
+              }}>
+                {tab.label}
+              </div>
+            </NavLink>
+          ))}
+        </div>
       </div>
 
-      {/* Main */}
-      <div>
-        <Outlet context={{ editing, setEditing, form, setForm, handleSave, saving }} />
-        {/* Default content when on /cuenta exactly — profile */}
+      {/* ══ Contenido ════════════════════════════════════════════════════ */}
+      <div style={{ padding: '24px 20px' }}>
+        <Outlet />
       </div>
     </div>
   );

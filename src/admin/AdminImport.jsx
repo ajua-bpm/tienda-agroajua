@@ -44,10 +44,16 @@ const norm = obj => {
   return out;
 };
 
+// ── Normalize text for matching: lowercase, no accents, no extra spaces ────────
+const normalizeStr = s =>
+  String(s || '').toLowerCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+
 // ── Templates ─────────────────────────────────────────────────────────────────
 const TEMPLATE_PRODUCTOS = [
-  { Nombre:'Repollo Verde', Descripcion:'Caja 4 unidades calibre A', Categoria:'Verduras', Unidad:'Caja', PrecioPublico:45, PrecioGeneral:38, Emoji:'🥬' },
-  { Nombre:'Zanahoria Baby', Descripcion:'Bolsa 1 kg lavada', Categoria:'Verduras', Unidad:'Bolsa', PrecioPublico:22, PrecioGeneral:18, Emoji:'🥕' },
+  { Nombre:'Repollo Verde', Descripcion:'Caja 4 unidades calibre A', Categoria:'Verduras', Unidad:'Caja', PrecioPublico:45, PrecioGeneral:38 },
+  { Nombre:'Zanahoria Baby', Descripcion:'Bolsa 1 kg lavada', Categoria:'Verduras', Unidad:'Bolsa', PrecioPublico:22, PrecioGeneral:18 },
 ];
 
 function makeTemplatePreciosXLSX(productos) {
@@ -75,9 +81,9 @@ export default function AdminImport() {
   const [resultL,     setResultL]     = useState(null);
   const precioRef = useRef();
 
-  // Product name → id map
+  // Product name (normalized) → id map
   const prodNameMap = Object.fromEntries(
-    productos.map(p => [p.nombre.toLowerCase().trim(), p.id])
+    productos.map(p => [normalizeStr(p.nombre), p.id])
   );
 
   // ── Read product file ──────────────────────────────────────────────────────
@@ -101,6 +107,7 @@ export default function AdminImport() {
       for (const row of prodRows) {
         const nombre = (row.nombre || '').trim();
         if (!nombre) { skip++; continue; }
+        const emojiVal = (row.emoji || '').trim() || null;
         await addDoc(collection(db, 't_productos'), {
           nombre,
           descripcion:   row.descripcion   || '',
@@ -108,7 +115,7 @@ export default function AdminImport() {
           unidad:        row.unidad         || '',
           precioPublico: parseFloat(row.preciopublico || row.precio_publico || 0),
           precioGeneral: parseFloat(row.precioGeneral || row.precio_general || row.preciopublico || row.precio_publico || 0),
-          emoji:         row.emoji          || '🌿',
+          ...(emojiVal ? { emoji: emojiVal } : {}),
           enStock:       true,
           activo:        true,
           creadoEn:      serverTimestamp(),
@@ -150,7 +157,7 @@ export default function AdminImport() {
         const nombre = (row.producto || row.nombre || '').trim();
         const precio = parseFloat(row.precio || 0);
         if (!nombre || !precio) continue;
-        const prodId = prodNameMap[nombre.toLowerCase()] || null;
+        const prodId = prodNameMap[normalizeStr(nombre)] || null;
         if (!prodId) { noMatch.push(nombre); continue; }
         items.push({ productoId: prodId, precio });
         ok++;
@@ -204,7 +211,7 @@ export default function AdminImport() {
             <div style={{ fontWeight:700, marginBottom:8 }}>Columnas del Excel:</div>
             <table style={{ width:'100%', fontSize:'.72rem', borderCollapse:'collapse' }}>
               <tbody>
-                {[['Nombre *','Nombre del producto'],['Descripcion','Descripción corta'],['Categoria','Una de las categorías'],['Unidad','Unidad de venta'],['PrecioPublico *','Precio público (Q)'],['PrecioGeneral','Precio cliente general'],['Emoji','Emoji opcional 🥬']].map(([col, desc]) => (
+                {[['Nombre *','Nombre del producto'],['Descripcion','Descripción corta'],['Categoria','Una de las categorías'],['Unidad','Unidad de venta'],['PrecioPublico *','Precio público (Q)'],['PrecioGeneral','Precio cliente general'],['Emoji','Opcional — si vacío no se asigna']].map(([col, desc]) => (
                   <tr key={col}>
                     <td style={{ fontWeight:700, paddingRight:8, paddingBottom:4, whiteSpace:'nowrap', color:G }}>{col}</td>
                     <td style={{ color:'#888', paddingBottom:4 }}>{desc}</td>

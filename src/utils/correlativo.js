@@ -22,6 +22,21 @@ export async function nextCorrelativo(tipo = 'OC') {
 }
 
 /**
+ * Generates next client code: CLI-NNNN (global, not per year)
+ */
+export async function nextClienteCodigo() {
+  const ref = doc(db, 't_config', 'contadores');
+  const n = await runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    const data = snap.exists() ? snap.data() : {};
+    const next = (data['CLI'] || 0) + 1;
+    tx.set(ref, { ...data, CLI: next }, { merge: true });
+    return next;
+  });
+  return `CLI-${String(n).padStart(4, '0')}`;
+}
+
+/**
  * Generates invoice correlativo: FAC-A-YYYY-NNNN
  * Serie is configurable via t_config/facturacion.serie
  */
