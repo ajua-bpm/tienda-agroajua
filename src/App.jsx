@@ -60,6 +60,7 @@ export default function App() {
       {/* Customer account (requires auth) */}
       <Route path="/cuenta" element={<RequireAuth><PublicLayout><MiCuenta /></PublicLayout></RequireAuth>}>
         <Route index           element={<ResumenCuenta />} />
+        <Route path="ordenes"  element={<MisOrdenes />} />
         <Route path="pedidos"  element={<MisOrdenes />} />
         <Route path="perfil"   element={<MiPerfil />} />
       </Route>
